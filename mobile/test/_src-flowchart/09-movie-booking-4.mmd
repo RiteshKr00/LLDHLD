@@ -1,0 +1,10 @@
+flowchart TD
+    A[hold_seats user, show, seat_ids] --> B[acquire PER-SHOW lock]
+    B --> C[lazily expire any timed-out holds]
+    C --> D{ALL requested seats AVAILABLE?}
+    D -->|no| E[raise SeatUnavailableError<br/>hold NOTHING]
+    D -->|yes| F[mark ALL as HELD<br/>set held_by + expiry]
+    F --> G[calculate price via Strategy]
+    G --> H[create Booking PENDING]
+    H --> I[release lock]
+    E --> I

@@ -1,0 +1,5 @@
+// Top-level build file. The APK is produced by .github/workflows/build-apk.yml,
+// which installs Gradle and the Android SDK in CI - nothing to install locally.
+plugins {
+    id 'com.android.application' version '8.5.2' apply false
+}

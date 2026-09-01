@@ -1,0 +1,21 @@
+{
+  "name": "LLD Interview Prep",
+  "short_name": "LLD Prep",
+  "description": "Low-Level Design interview prep - problems, solutions, HLD companions and spaced-repetition revision. Works offline.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b0f17",
+  "theme_color": "#0b0f17",
+  "categories": ["education", "productivity"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Revise", "short_name": "Revise", "url": "./index.html#/revise" },
+    { "name": "Search", "short_name": "Search", "url": "./index.html#/search" }
+  ]
+}

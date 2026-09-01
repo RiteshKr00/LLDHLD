@@ -1,0 +1,62 @@
+name: Build APK
+
+# Produces an installable Android APK from mobile/. Nothing is installed on your
+# laptop - GitHub supplies the JDK, Gradle and the Android SDK.
+#
+# Run it: Actions tab -> "Build APK" -> Run workflow. When it finishes, download
+# the "LLD-Prep-apk" artifact, unzip, and copy the .apk to your phone.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+    paths:
+      - 'mobile/**'
+      - '**/*.md'
+      - '**/*.py'
+      - '.github/workflows/build-apk.yml'
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Build the study bundle and copy it into the Android project
+        run: python mobile/build.py --android
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Assemble debug APK
+        working-directory: mobile/android
+        run: gradle assembleDebug --no-daemon --stacktrace
+
+      - name: Name the APK after the content version
+        id: rename
+        run: |
+          VERSION=$(python -c "import json,re,pathlib; \
+            s=pathlib.Path('mobile/www/content.js').read_text(encoding='utf-8'); \
+            print(json.loads(s.split('window.LLD_CONTENT = ',1)[1].rstrip().rstrip(';').replace('<\\\\/','</'))['version'])")
+          mkdir -p out
+          cp mobile/android/app/build/outputs/apk/debug/app-debug.apk "out/LLD-Prep-$VERSION.apk"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          ls -la out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LLD-Prep-apk
+          path: out/*.apk
+          if-no-files-found: error
+          retention-days: 90

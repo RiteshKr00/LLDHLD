@@ -1,0 +1,14 @@
+flowchart TD
+    A[shorten long_url, custom_code?] --> B{custom_code given?}
+    B -->|YES - user owns it| C[build ShortLink]
+    C --> D{save_if_absent?}
+    D -->|taken| E[RAISE ValueError<br/>can't overrule the user]
+    D -->|ok| F[return link]
+    B -->|no - machine owns it| G[generate code]
+    G --> H[build ShortLink]
+    H --> I{save_if_absent?}
+    I -->|taken| G
+    I -->|ok| F
+
+    style E fill:#5c1a1a,color:#fff
+    style G fill:#2d5016,color:#fff

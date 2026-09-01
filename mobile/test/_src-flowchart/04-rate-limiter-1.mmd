@@ -1,0 +1,15 @@
+flowchart TD
+    A[allow user, endpoint] --> B[key = user:endpoint]
+    B --> C[algorithm.allow_request key, rule]
+    C --> D[store.increment key, window]
+    D --> E{one process or many?}
+    E -->|one process| F[with self.lock:<br/>read, reset if expired,<br/>+1, write]
+    E -->|many servers| G[Redis Lua script:<br/>INCR + EXPIRE<br/>as ONE command]
+    F --> H[count]
+    G --> H
+    H --> I{count <= limit?}
+    I -->|yes| J[ALLOW]
+    I -->|no| K[REJECT 429]
+
+    style F fill:#1a3a5c,color:#fff
+    style G fill:#1a3a5c,color:#fff

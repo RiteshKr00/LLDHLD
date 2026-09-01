@@ -1,0 +1,11 @@
+flowchart TD
+    A[put key, value] --> B{key already in dict?}
+    B -->|YES| C[update value<br/>policy.on_access<br/>RETURN]
+    B -->|no| D{len map >= capacity?}
+    D -->|yes| E[victim = policy.evict<br/>del map victim.key]
+    D -->|no| F[create Node]
+    E --> F
+    F --> G[policy.on_insert<br/>map key = node]
+
+    style C fill:#2d5016,color:#fff
+    style E fill:#5c1a1a,color:#fff

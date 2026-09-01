@@ -1,0 +1,44 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.lldprep.study'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.lldprep.study"
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName "1.0"
+    }
+
+    buildTypes {
+        debug {
+            // what CI ships: installable straight away, no keystore needed
+        }
+        release {
+            minifyEnabled false
+            // signed with the debug key so `assembleRelease` also produces something
+            // installable. Replace with a real keystore before publishing anywhere.
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    androidResources {
+        // the study bundle is already small; leaving it uncompressed keeps startup quick
+        noCompress 'woff2'
+    }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'androidx.webkit:webkit:1.11.0'
+    implementation 'androidx.activity:activity:1.9.2'
+}

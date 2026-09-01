@@ -1,0 +1,14 @@
+flowchart TD
+    A[make_move from, to] --> B{piece at 'from'?}
+    B -->|no| X1[raise: no piece there]
+    B -->|yes| C{piece.color == current_turn?}
+    C -->|no| X2[raise: not your turn]
+    C -->|yes| D[get_legal_moves via MovementStrategy]
+    D --> E{'to' in legal moves?}
+    E -->|no| X3[raise: illegal for that piece]
+    E -->|yes| F[SIMULATE: try_move]
+    F --> G{my own king in check now?}
+    G -->|yes| H[undo_move] --> X4[raise: leaves king in check]
+    G -->|no| I[undo_move, then COMMIT for real]
+    I --> J[has_moved=True, promotion?, flip turn]
+    J --> K[_update_status: opponent checkmate/stalemate?]

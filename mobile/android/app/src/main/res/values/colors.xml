@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- matches --bg in www/styles.css so there is no flash on launch -->
+    <color name="window_bg">#F6F7FB</color>
+    <color name="icon_bg">#0D111B</color>
+</resources>

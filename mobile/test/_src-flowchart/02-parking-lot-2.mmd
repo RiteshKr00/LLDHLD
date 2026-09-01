@@ -1,0 +1,16 @@
+flowchart TD
+    A[park vehicle] --> B[acquire lock]
+    B --> C{plate already parked?}
+    C -->|yes| D[raise VehicleAlreadyParkedError<br/>else its old spot leaks forever]
+    C -->|no| E[strategy.assign_spot<br/>find first fitting FREE spot]
+    E --> F{found?}
+    F -->|no| G[raise LotFullError]
+    F -->|yes| H[spot.is_available = False<br/>CLAIM it]
+    H --> I[create Ticket, store by plate]
+    I --> J[release lock]
+    D --> J
+    G --> J
+
+    style B fill:#1a3a5c,color:#fff
+    style J fill:#1a3a5c,color:#fff
+    style H fill:#2d5016,color:#fff
