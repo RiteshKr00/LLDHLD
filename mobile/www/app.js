@@ -1119,8 +1119,11 @@
           : 'NOT being saved - this browser is blocking storage')
       + '</small></div>'
       + '<button class="btn danger" data-reset>Reset</button></div>'
-      + '<div class="setrow"><div class="lab">Backup<small>Copy your progress out, or restore it</small></div>'
-      + '<button class="btn" data-backup>Backup</button></div>'
+      + '<div class="setrow"><div class="lab">Progress recovery<small>Download or upload progress JSON</small></div>'
+      + '<div style="display:flex;gap:8px">'
+      + '<button class="btn" data-download-backup>Download JSON</button>'
+      + '<label class="btn primary" style="cursor:pointer;margin:0">Upload JSON<input type="file" id="upload-backup-file" accept=".json" style="display:none"></label>'
+      + '</div></div>'
       + (installPrompt ? '<div class="setrow"><div class="lab">Install<small>Add to home screen</small></div>'
         + '<button class="btn primary" data-install>Install app</button></div>' : '')
       + '<div class="setrow"><div class="lab" style="color:var(--dim);font-size:.78rem">'
@@ -1132,55 +1135,49 @@
 
   // --------------------------------------------------------------- backup
 
-  /* Progress lives in this device's local storage. That survives closing the app and
-     restarting the phone, but not clearing browser data or uninstalling - so there is
-     a way to carry it out as text. A textarea rather than a file download, because a
-     WebView inside an APK cannot start a download. */
-  function openBackup() {
-    var json = JSON.stringify(state);
-    var done = 0, k;
-    for (k in state.docs) if (state.docs.hasOwnProperty(k) && state.docs[k].done) done++;
-    var cards = 0;
-    for (k in state.cards) if (state.cards.hasOwnProperty(k)) cards++;
-
-    sheet('<h4>Backup progress</h4>'
-      + '<div style="font-size:.82rem;color:var(--dim);margin:0 2px 10px">'
-      + done + ' sections marked revised, ' + cards + ' cards scheduled. '
-      + 'Copy this text somewhere safe. To restore later, paste it back in and tap Restore.'
-      + '</div>'
-      + '<textarea class="backup" id="bk" spellcheck="false" autocapitalize="off">'
-      + esc(json) + '</textarea>'
-      + '<div class="flashbar">'
-      + '<button class="btn" data-bkcopy>Copy</button>'
-      + '<button class="btn primary" data-bkrestore>Restore</button>'
-      + '</div>');
+  function downloadBackup() {
+    var json = JSON.stringify(state, null, 2);
+    var blob = new Blob([json], { type: 'application/json' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'lld-hld-progress.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast('Download started');
   }
 
-  function restoreBackup() {
-    var box = document.getElementById('bk');
-    var data;
-    try {
-      data = JSON.parse(box ? box.value : '');
-    } catch (e) {
-      toast('That is not valid backup text');
-      return;
-    }
-    if (!data || typeof data !== 'object' || (!data.docs && !data.cards)) {
-      toast('That backup does not look right');
-      return;
-    }
-    state.docs = data.docs || {};
-    state.cards = data.cards || {};
-    state.star = data.star || {};
-    state.log = data.log || {};
-    state.last = data.last || null;
-    if (data.settings) state.settings = Object.assign(state.settings, data.settings);
-    writeNow();
-    closeSheet();
-    applyTheme();
-    applySize();
-    route();
-    toast('Progress restored');
+  function uploadBackup(file) {
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function(e) {
+      var data;
+      try {
+        data = JSON.parse(e.target.result);
+      } catch (err) {
+        toast('That is not a valid JSON file');
+        return;
+      }
+      if (!data || typeof data !== 'object' || (!data.docs && !data.cards)) {
+        toast('That backup does not look right');
+        return;
+      }
+      state.docs = data.docs || {};
+      state.cards = data.cards || {};
+      state.star = data.star || {};
+      state.log = data.log || {};
+      state.last = data.last || null;
+      if (data.settings) state.settings = Object.assign(state.settings, data.settings);
+      writeNow();
+      closeSheet();
+      applyTheme();
+      applySize();
+      route();
+      toast('Progress restored');
+    };
+    reader.readAsText(file);
   }
 
   // ---------------------------------------------------------------- sheet
@@ -1566,6 +1563,13 @@
 
   // ------------------------------------------------------------- events
 
+  document.addEventListener('change', function (e) {
+    var t = e.target;
+    if (t.id === 'upload-backup-file') {
+      uploadBackup(t.files[0]);
+    }
+  });
+
   document.addEventListener('click', function (e) {
     var t = e.target;
 
@@ -1692,7 +1696,7 @@
       return;
     }
 
-    if (t.closest('[data-backup]')) { openBackup(); return; }
+    if (t.closest('[data-download-backup]')) { downloadBackup(); return; }
 
     if (t.closest('[data-bkcopy]')) {
       var box = document.getElementById('bk');
