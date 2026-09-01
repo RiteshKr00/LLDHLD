@@ -30,6 +30,8 @@
     if (!toastEl) {
       toastEl = document.createElement('div');
       toastEl.className = 'toast';
+      toastEl.setAttribute('role', 'status');
+      toastEl.setAttribute('aria-live', 'polite');
       document.body.appendChild(toastEl);
     }
     toastEl.textContent = msg;
@@ -489,7 +491,10 @@
 
   function setNav(active) {
     $$('.tabbar button').forEach(function (b) {
-      b.classList.toggle('on', b.dataset.nav === active);
+      var on = b.dataset.nav === active;
+      b.classList.toggle('on', on);
+      if (on) b.setAttribute('aria-current', 'page');
+      else b.removeAttribute('aria-current');
     });
     document.body.classList.toggle('no-nav', !active);
     $('.tabbar').style.display = active ? '' : 'none';
@@ -604,13 +609,13 @@
         + '</div></div></button>';
     }
 
-    h += '<div class="eyebrow">Pick a track</div>';
+    h += '<h2 class="eyebrow">Pick a track</h2>';
     h += trackTile('LLD', 'One machine. Classes, responsibilities, patterns, working code.', lld);
     h += trackTile('HLD', 'Many machines. Scale, storage, tradeoffs, failure.', hld);
 
     var starred = C.problems.filter(function (p) { return state.star[p.id]; });
     if (starred.length) {
-      h += '<div class="eyebrow">Starred</div>';
+      h += '<h2 class="eyebrow">Starred</h2>';
       starred.forEach(function (p) { h += problemCard(p); });
     }
     h += '</div>';
@@ -623,20 +628,20 @@
     var h = '<div class="view">';
 
     if (isLld) {
-      h += '<div class="eyebrow">Read &amp; build</div>';
+      h += '<h2 class="eyebrow">Read &amp; build</h2>';
       C.problems.forEach(function (p) { h += problemCard(p); });
-      h += '<div class="eyebrow">Reference</div>';
+      h += '<h2 class="eyebrow">Reference</h2>';
       C.refs.filter(function (r) { return r.group === 'LLD' || r.group === 'Start here'; })
         .forEach(function (r) { h += refCard(r); });
     } else {
       var basics = ref('HLD-BASICS');
       if (basics) {
-        h += '<div class="eyebrow">New to HLD? Start here</div>' + refCard(basics);
+        h += '<h2 class="eyebrow">New to HLD? Start here</h2>' + refCard(basics);
       }
-      h += '<div class="eyebrow">The 10 rounds</div>';
+      h += '<h2 class="eyebrow">The 10 rounds</h2>';
       C.refs.filter(function (r) { return r.group === 'HLD rounds'; })
         .forEach(function (r) { h += refCard(r); });
-      h += '<div class="eyebrow">Per-problem HLD companions</div>';
+      h += '<h2 class="eyebrow">Per-problem HLD companions</h2>';
       C.problems.forEach(function (p) {
         if (!p.docs.some(function (d) { return d.key === 'hld'; })) return;
         var st = state.docs[docKey('p', p.id, 'hld')];
@@ -645,14 +650,14 @@
           + '<div class="body"><h3>' + esc(p.title) + '</h3>'
           + '<div class="meta">the HLD side of the same problem</div></div></div></button>';
       });
-      h += '<div class="eyebrow">Reference</div>';
+      h += '<h2 class="eyebrow">Reference</h2>';
       C.refs.filter(function (r) { return r.group === 'HLD' && r.id !== 'HLD-BASICS'; })
         .forEach(function (r) { h += refCard(r); });
     }
 
     var ms = trackMocks(isLld ? 'LLD' : 'HLD');
     if (ms.length) {
-      h += '<div class="eyebrow">Mock it &middot; ' + ms.length + ' rounds</div>';
+      h += '<h2 class="eyebrow">Mock it &middot; ' + ms.length + ' rounds</h2>';
       ms.forEach(function (m) { h += mockCard(m); });
     }
     h += '</div>';
@@ -697,7 +702,7 @@
     var groups = {};
     C.refs.forEach(function (r) { (groups[r.group] = groups[r.group] || []).push(r); });
     Object.keys(groups).forEach(function (g) {
-      h += '<div class="eyebrow">' + esc(g) + '</div>';
+      h += '<h2 class="eyebrow">' + esc(g) + '</h2>';
       groups[g].forEach(function (r) {
         var st = state.docs[docKey('r', r.id)];
         h += '<button class="card" data-go="#/r/' + r.id + '"><div class="card-row">'
@@ -743,9 +748,10 @@
     render(h, esc(title), subtitle, false, {
       back: true,
       actions: (kind === 'p'
-        ? '<button class="iconbtn' + (state.star[id] ? ' on' : '') + '" data-star>' + icon('star') + '</button>'
+        ? '<button class="iconbtn' + (state.star[id] ? ' on' : '') + '" data-star aria-label="Star this problem" aria-pressed="'
+          + (state.star[id] ? 'true' : 'false') + '">' + icon('star') + '</button>'
         : '')
-        + (toc.length ? '<button class="iconbtn" data-toc>' + icon('list') + '</button>' : '')
+        + (toc.length ? '<button class="iconbtn" data-toc aria-label="Table of contents">' + icon('list') + '</button>' : '')
     });
     setNav(null);
 
@@ -909,9 +915,9 @@
     setNav('search');
     var h = '<div class="view">'
       + '<div class="searchbox">' + icon('search')
-      + '<input id="q" type="search" placeholder="Search all notes..." autocomplete="off" '
-      + 'autocapitalize="off" spellcheck="false" value="' + esc(q || '') + '">'
-      + '<button class="iconbtn" data-clear style="width:28px;height:28px">' + icon('x') + '</button></div>'
+      + '<input id="q" type="search" placeholder="Search all notes..." aria-label="Search all notes" '
+      + 'autocomplete="off" autocapitalize="off" spellcheck="false" value="' + esc(q || '') + '">'
+      + '<button class="iconbtn" data-clear aria-label="Clear search" style="width:28px;height:28px">' + icon('x') + '</button></div>'
       + '<div id="results"></div></div>';
     render(h, 'Search', 'Every problem and reference', true);
 
@@ -931,7 +937,7 @@
         box.innerHTML = '<div class="empty">No matches for "' + esc(val) + '"</div>';
         return;
       }
-      box.innerHTML = '<div class="eyebrow">' + res.length + ' result' + (res.length > 1 ? 's' : '') + '</div>'
+      box.innerHTML = '<h2 class="eyebrow">' + res.length + ' result' + (res.length > 1 ? 's' : '') + '</h2>'
         + res.map(function (r) {
           return '<button class="hit" data-go="' + r.entry.route + '?q=' + encodeURIComponent(val) + '">'
             + '<div class="where">' + esc(r.entry.title) + ' &middot; ' + esc(r.entry.sub) + '</div>'
@@ -987,7 +993,7 @@
     if (totalDue + totalNew) {
       h += '<div style="margin-top:12px"><button class="btn primary" style="width:100%" data-go="#/revise/all">Start mixed session</button></div>';
     }
-    h += '</div><div class="eyebrow">Decks</div><div class="deckwrap">';
+    h += '</div><h2 class="eyebrow">Decks</h2><div class="deckwrap">';
 
     C.decks.forEach(function (d) {
       var due = dueCards(d).length;
@@ -1208,15 +1214,19 @@
     closeSheet();
     scrollSaver = null;
     currentDoc = null;
-    var barHtml = '<div class="appbar">'
-      + (opts.back ? '<button class="iconbtn" data-back>' + icon('back') + '</button>' : '')
-      + '<h1>' + title + (sub ? '<span class="sub">' + sub + '</span>' : '') + '</h1>'
+    var barHtml = '<header class="appbar">'
+      + (opts.back ? '<button class="iconbtn" data-back aria-label="Back">' + icon('back') + '</button>' : '')
+      + '<h1 tabindex="-1">' + title + (sub ? '<span class="sub">' + sub + '</span>' : '') + '</h1>'
       + (opts.actions || '')
-      + (showNav ? '<button class="iconbtn" data-settings>' + icon('cog') + '</button>' : '')
-      + '</div>';
+      + (showNav ? '<button class="iconbtn" data-settings aria-label="Settings">' + icon('cog') + '</button>' : '')
+      + '</header>';
     app.innerHTML = barHtml + html;
     if (opts.backTo) $('[data-back]').dataset.backTo = opts.backTo;
     if (showNav) window.scrollTo(0, 0);
+    // move focus to the new view's heading so a screen reader announces the
+    // route change; tabindex=-1 keeps it out of normal tab order otherwise.
+    var h1 = $('.appbar h1');
+    if (h1) h1.focus({ preventScroll: true });
   }
 
   // ----------------------------------------------------------- mock mode
@@ -1300,8 +1310,8 @@
       var list = C.mocks.filter(function (m) { return m.track === track; });
       if (!list.length) return;
       var att = list.filter(function (m) { return mockStat(m.id).runs; }).length;
-      h += '<div class="eyebrow">' + track + ' &middot; ' + list.length + ' rounds'
-        + (att ? ' &middot; ' + att + ' attempted' : '') + '</div>';
+      h += '<h2 class="eyebrow">' + track + ' &middot; ' + list.length + ' rounds'
+        + (att ? ' &middot; ' + att + ' attempted' : '') + '</h2>';
       list.forEach(function (m) { h += mockCard(m); });
     });
     h += '</div>';
@@ -1346,7 +1356,7 @@
   function runIntro(m) {
     var st = mockStat(m.id);
     var h = '<div class="view">';
-    h += '<div class="mck-prompt"><div class="eyebrow" style="margin-top:0">The interviewer says</div>'
+    h += '<div class="mck-prompt"><h2 class="eyebrow" style="margin-top:0">The interviewer says</h2>'
       + '<div class="prose">' + md2html(m.prompt) + '</div></div>';
     h += '<div class="mck-note">You get ' + esc(m.time) + '. Talk out loud. Nothing is revealed until '
       + 'you have answered &mdash; that is the whole point.'
@@ -1367,8 +1377,9 @@
     m.clarify.forEach(function (c, i) {
       var k = 'c' + i, on = run.ticks[k], open = run.open[k];
       h += '<div class="mck-item' + (on ? ' on' : '') + '">'
-        + '<button class="mck-tick" data-mtick="' + k + '">' + (on ? icon('check') : '') + '</button>'
-        + '<div class="mck-txt"><button class="mck-q" data-mopen="' + k + '">' + md2html(c.q) + '</button>'
+        + '<button class="mck-tick" role="checkbox" aria-checked="' + (on ? 'true' : 'false')
+        + '" aria-labelledby="mq-' + k + '" data-mtick="' + k + '">' + (on ? icon('check') : '') + '</button>'
+        + '<div class="mck-txt"><button class="mck-q" id="mq-' + k + '" data-mopen="' + k + '">' + md2html(c.q) + '</button>'
         + (open ? '<div class="mck-a">' + md2html(c.a) + '</div>' : '') + '</div></div>';
     });
     h += '<button class="mck-go" data-mnext>Scope is set &rarr; start designing</button>';
@@ -1389,19 +1400,20 @@
       h += '<div class="mck-note">Say your answer out loud <b>first</b>. Only then reveal.</div>';
       h += '<button class="mck-go" data-mshow>I have answered &mdash; show the checkpoints</button>';
     } else {
-      h += '<div class="eyebrow">Tick what you actually said</div>';
+      h += '<h2 class="eyebrow">Tick what you actually said</h2>';
       s.checkpoints.forEach(function (c, i) {
         var k = 's' + run.si + ':' + i, on = run.ticks[k];
         h += '<div class="mck-item' + (on ? ' on' : '') + '">'
-          + '<button class="mck-tick" data-mtick="' + k + '">' + (on ? icon('check') : '') + '</button>'
-          + '<div class="mck-txt">' + md2html(c) + '</div></div>';
+          + '<button class="mck-tick" role="checkbox" aria-checked="' + (on ? 'true' : 'false')
+          + '" aria-labelledby="mt-' + k + '" data-mtick="' + k + '">' + (on ? icon('check') : '') + '</button>'
+          + '<div class="mck-txt" id="mt-' + k + '">' + md2html(c) + '</div></div>';
       });
       if (s.traps.length) {
-        h += '<div class="eyebrow">Traps</div><div class="mck-traps">'
+        h += '<h2 class="eyebrow">Traps</h2><div class="mck-traps">'
           + s.traps.map(function (t) { return '<div>' + md2html(t) + '</div>'; }).join('') + '</div>';
       }
       if (s.followups.length) {
-        h += '<div class="eyebrow">If they push</div><div class="mck-follow">'
+        h += '<h2 class="eyebrow">If they push</h2><div class="mck-follow">'
           + s.followups.map(function (t) { return '<div>' + md2html(t) + '</div>'; }).join('') + '</div>';
       }
       h += '<button class="mck-go" data-mnext>'
@@ -1449,7 +1461,7 @@
       + '</div></div>';
 
     if (missed.length) {
-      h += '<div class="eyebrow">' + missed.length + ' missed &middot; this is the actual homework</div>';
+      h += '<h2 class="eyebrow">' + missed.length + ' missed &middot; this is the actual homework</h2>';
       var grouped = {};
       missed.forEach(function (x) { (grouped[x.where] = grouped[x.where] || []).push(x.what); });
       Object.keys(grouped).forEach(function (g) {
@@ -1461,11 +1473,11 @@
     }
 
     if (m.oneliner) {
-      h += '<div class="eyebrow">The one line to remember</div>'
+      h += '<h2 class="eyebrow">The one line to remember</h2>'
         + '<div class="mck-one">' + md2html(m.oneliner) + '</div>';
     }
-    if (m.rubric) h += '<div class="eyebrow">Rubric</div><div class="prose">' + md2html(m.rubric) + '</div>';
-    if (m.reference) h += '<div class="eyebrow">Reference answer</div><div class="prose">' + md2html(m.reference) + '</div>';
+    if (m.rubric) h += '<h2 class="eyebrow">Rubric</h2><div class="prose">' + md2html(m.rubric) + '</div>';
+    if (m.reference) h += '<h2 class="eyebrow">Reference answer</h2><div class="prose">' + md2html(m.reference) + '</div>';
 
     h += '<button class="mck-go" data-mretry>Run it again</button>';
     h += '<button class="mck-alt" data-go="' + docRoute(m) + '">Read the full write-up</button>';
@@ -1597,6 +1609,7 @@
       if (state.star[currentDoc.id]) delete state.star[currentDoc.id];
       else state.star[currentDoc.id] = 1;
       star.classList.toggle('on');
+      star.setAttribute('aria-pressed', state.star[currentDoc.id] ? 'true' : 'false');
       save();
       toast(state.star[currentDoc.id] ? 'Starred' : 'Unstarred');
       return;

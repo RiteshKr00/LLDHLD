@@ -58,6 +58,38 @@ body {
 
 body.no-nav { padding-bottom: var(--safe-b); }
 
+/* -------------------------------------------------------------- a11y --- */
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+:focus:not(:focus-visible) { outline: none; }
+
+/* the appbar h1 takes focus on every route change so a screen reader
+   announces the new view; it isn't a real keyboard stop, so no ring. */
+.appbar h1:focus { outline: none; }
+
+.skip-link {
+  position: absolute;
+  top: -40px;
+  left: 8px;
+  z-index: 100;
+  background: var(--accent);
+  color: #06101f;
+  font-weight: 600;
+  font-size: .85rem;
+  padding: 8px 14px;
+  border-radius: 10px;
+  transition: top .15s;
+}
+.skip-link:focus { top: 8px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .skip-link { transition: none; }
+}
+
 button, input, select { font: inherit; color: inherit; }
 button { background: none; border: 0; cursor: pointer; padding: 0; }
 a { color: var(--accent); text-decoration: none; }
@@ -116,9 +148,11 @@ a { color: var(--accent); text-decoration: none; }
   text-transform: uppercase;
   color: var(--faint);
   font-weight: 700;
-  margin: 22px 2px 10px;
+  margin: 26px 2px 10px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
 }
-.eyebrow:first-child { margin-top: 6px; }
+.eyebrow:first-child { margin-top: 6px; padding-top: 0; border-top: 0; }
 
 /* ------------------------------------------------------------------ cards */
 
