@@ -47,13 +47,16 @@
 
   function load() {
     var base = {
-      settings: { theme: 'system', size: 2, wake: false },
+      settings: { theme: 'system', size: 2, wake: false, goal: 3, interviewDate: '' },
       docs: {},     // docKey -> {p: scroll 0..1, done: 1|0, t: last opened }
       star: {},     // problem id -> 1
       cards: {},    // card id -> {box, due, n}
-      log: {},      // 'YYYY-MM-DD' -> cards graded that day
+      open: {},     // section key -> 0 when the user collapsed it (default open)
       diag: {},     // diagram hash -> 1 once you have been through it
       mock: {},     // mock id -> {best, runs, last, missed}
+      streak: {},   // 'YYYY-MM-DD' -> units of work done that day
+      lastPath: null,  // which track's path Home should point at - null means
+                        // never chosen, distinct from having genuinely chosen 'ai'
       last: null    // last route
     };
     try {
@@ -105,7 +108,66 @@
     return state.docs[key];
   }
 
-  function today() { return new Date().toISOString().slice(0, 10); }
+  /* Local date, not UTC. toISOString() rolls the day over at 05:30 in IST,
+     so a session at 1am used to count for the day before. */
+  function today(d) {
+    d = d ? new Date(d) : new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0')
+      + '-' + String(d.getDate()).padStart(2, '0');
+  }
+
+  function dayBefore(key, n) {
+    if (n === undefined) n = 1;
+    var q = key.split('-'), d = new Date(+q[0], +q[1] - 1, +q[2]);
+    d.setDate(d.getDate() - n);
+    return today(d);
+  }
+
+  var GOALS = [1, 3, 5];
+  function goalN() {
+    var g = state.settings.goal;
+    return GOALS.indexOf(g) > -1 ? g : 3;
+  }
+  function metOn(k) { return (state.streak[k] || 0) >= goalN(); }
+
+  /* Derived from the day log every time, never stored. A restored backup, a
+     flight across timezones or a nudged clock cannot leave a phantom streak. */
+  function streakInfo() {
+    var t = today();
+    var cur = 0, k = metOn(t) ? t : dayBefore(t);
+    while (metOn(k)) { cur++; k = dayBefore(k); }
+    var best = 0, run = 0, prev = null;
+    Object.keys(state.streak).filter(metOn).sort().forEach(function (d) {
+      run = (prev && dayBefore(d) === prev) ? run + 1 : 1;
+      if (run > best) best = run;
+      prev = d;
+    });
+    return { cur: cur, best: Math.max(best, cur), n: state.streak[t] || 0,
+             goal: goalN(), met: metOn(t) };
+  }
+
+  /* One unit of work: a section read to the end, a card graded, a mock run. */
+  function bump(n) {
+    var t = today(), was = metOn(t);
+    state.streak[t] = (state.streak[t] || 0) + (n || 1);
+    save();
+    if (!was && metOn(t)) {
+      var s = streakInfo();
+      toast(s.cur > 1 ? s.cur + '-day streak' : 'Streak started');
+    }
+  }
+
+  function weekStrip() {
+    var t = today(), out = '';
+    for (var i = 6; i >= 0; i--) {
+      var k = dayBefore(t, i);
+      var q = k.split('-'), d = new Date(+q[0], +q[1] - 1, +q[2]);
+      var cls = metOn(k) ? ' met' : ((state.streak[k] || 0) ? ' some' : '');
+      out += '<div class="wd' + cls + (i === 0 ? ' now' : '') + '">'
+        + '<i></i><span>' + 'SMTWTFS'.charAt(d.getDay()) + '</span></div>';
+    }
+    return '<div class="week">' + out + '</div>';
+  }
 
   // ------------------------------------------------------- content lookups
 
@@ -121,15 +183,6 @@
     return p.docs[0];
   }
   function docKey(kind, id, sub) { return kind + ':' + id + (sub ? ':' + sub : ''); }
-
-  function allDocKeys() {
-    var keys = [];
-    C.problems.forEach(function (p) {
-      p.docs.forEach(function (d) { keys.push(docKey('p', p.id, d.key)); });
-    });
-    C.refs.forEach(function (r) { keys.push(docKey('r', r.id)); });
-    return keys;
-  }
 
   // -------------------------------------------------------------- markdown
 
@@ -503,6 +556,7 @@
   function icon(name) {
     var paths = {
       back: '<path d="M15 18l-6-6 6-6"/>',
+      home: '<path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/>',
       search: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>',
       book: '<path d="M4 5.5A2.5 2.5 0 016.5 3H19v15H6.5A2.5 2.5 0 004 20.5z"/><path d="M4 15.5h15"/>',
       layers: '<path d="M12 3l9 5-9 5-9-5 9-5z"/><path d="M3 13l9 5 9-5"/>',
@@ -511,7 +565,9 @@
       cog: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/>',
       star: '<path d="M12 3l2.6 5.6 6 .8-4.4 4.2 1.1 6-5.3-2.9-5.3 2.9 1.1-6L3.4 9.4l6-.8z"/>',
       check: '<path d="M20 6L9 17l-5-5"/>',
-      x: '<path d="M18 6L6 18M6 6l12 12"/>'
+      x: '<path d="M18 6L6 18M6 6l12 12"/>',
+      flame: '<path d="M12 3s5 4.2 5 8.6a5 5 0 01-10 0C7 9.4 9 7.6 9 7.6s.6 1.8 1.7 2.4C10.4 7.4 12 3 12 3z"/>'
+        + '<path d="M12 21a6.5 6.5 0 006.5-6.5"/>'
     };
     return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" '
       + 'stroke-linecap="round" stroke-linejoin="round">' + (paths[name] || '') + '</svg>';
@@ -540,6 +596,7 @@
   function lldDocKeys() {
     var keys = [];
     C.problems.forEach(function (p) {
+      if (p.track && p.track !== 'LLD') return;
       p.docs.forEach(function (d) {
         if (d.key !== 'hld') keys.push(docKey('p', p.id, d.key));
       });
@@ -547,9 +604,23 @@
     return keys;
   }
 
+  /* The AI track is its own content root - topic folders plus its reference docs. */
+  function aiDocKeys() {
+    var keys = [];
+    C.problems.forEach(function (p) {
+      if (p.track !== 'AI') return;
+      p.docs.forEach(function (d) { keys.push(docKey('p', p.id, d.key)); });
+    });
+    C.refs.forEach(function (r) {
+      if (r.group === 'AI' || r.group === 'AI rounds') keys.push(docKey('r', r.id));
+    });
+    return keys;
+  }
+
   function hldDocKeys() {
     var keys = [];
     C.problems.forEach(function (p) {
+      if (p.track && p.track !== 'LLD') return;
       p.docs.forEach(function (d) {
         if (d.key === 'hld') keys.push(docKey('p', p.id, d.key));
       });
@@ -564,6 +635,71 @@
     if (!keys.length) return 0;
     var n = keys.filter(function (k) { return state.docs[k] && state.docs[k].done; }).length;
     return n / keys.length;
+  }
+
+  function lldProblems() {
+    return C.problems.filter(function (p) { return !p.track || p.track === 'LLD'; });
+  }
+  /* AI folders 01-14 are concept topics, 15+ are design scenarios. Splitting
+     them keeps one 44-card list from becoming an undifferentiated scroll. */
+  function aiProblems(kind) {
+    return C.problems.filter(function (p) {
+      return p.track === 'AI' && (!kind || (p.kind || 'topic') === kind);
+    });
+  }
+
+  /* The list you are actually reading through. C.problems holds all three
+     tracks end to end, so walking it blindly ran the last AI scenario
+     straight into LLD problem 1. */
+  function siblings(p) {
+    var tr = p.track || 'LLD', kd = p.kind || 'topic';
+    return C.problems.filter(function (x) {
+      return (x.track || 'LLD') === tr && (x.kind || 'topic') === kd;
+    });
+  }
+
+  function unitName(p) {
+    if ((p.track || 'LLD') !== 'AI') return 'Problem';
+    return (p.kind || 'topic') === 'design' ? 'Scenario' : 'Topic';
+  }
+
+  /* "Scenario 7 of 30" beats "Problem 22": the folder number alone tells you
+     nothing about how much of the track is left. */
+  function posLabel(p) {
+    var sib = siblings(p), i = sib.indexOf(p);
+    if (i < 0) return unitName(p) + ' ' + p.num;
+    return unitName(p) + ' ' + (i + 1) + ' of ' + sib.length;
+  }
+
+  /* Long list views were one unbroken scroll, so you lost track of which
+     group you were in. Each group is now a native <details> - keyboard and
+     screen-reader friendly for free - and the open/closed choice is
+     remembered per section. */
+  function sect(key, title, meta, body) {
+    if (!body) return '';
+    var shut = state.open && state.open[key] === 0;
+    return '<details class="sect" data-sect="' + key + '"' + (shut ? '' : ' open') + '>'
+      + '<summary><span class="sect-t">' + title + '</span>'
+      + (meta ? '<span class="sect-n">' + meta + '</span>' : '') + '</summary>'
+      + '<div class="sect-body">' + body + '</div></details>';
+  }
+
+  function setSect(key, isOpen) {
+    if (!state.open) state.open = {};
+    if (isOpen) delete state.open[key]; else state.open[key] = 0;
+    save();
+  }
+
+  /* Jumping between tracks used to mean going back to Home first. */
+  function trackChips(active) {
+    return '<div class="chips" role="tablist" aria-label="Track">'
+      + ['LLD', 'HLD', 'AI'].map(function (t) {
+          var on = t.toLowerCase() === active;
+          return '<button class="chip' + (on ? ' on' : '') + '" role="tab"'
+            + ' aria-selected="' + (on ? 'true' : 'false') + '"'
+            + ' data-go="#/t/' + t.toLowerCase() + '">' + t + '</button>';
+        }).join('')
+      + '</div>';
   }
 
   function trackMocks(track) { return C.mocks.filter(function (m) { return m.track === track; }); }
@@ -582,23 +718,277 @@
       + '</button>';
   }
 
+  /* ------------------------------------------------------------- widgets
+     Everything below reads state the app already keeps and never showed. The
+     most valuable of it is mock.missed - up to 40 checkpoints you failed to
+     mention, banked on every run since the feature shipped, and displayed
+     nowhere. */
+
+  function newAndDue() {
+    var fresh = 0, due = 0, now = Date.now();
+    C.decks.forEach(function (d) {
+      d.cards.forEach(function (c) {
+        var st = cardState(c.id);
+        if (st.box < 0) fresh++;
+        else if (st.due <= now) due++;
+      });
+    });
+    return { fresh: fresh, due: due };
+  }
+
+  /* The checkpoints you missed, newest run first. One per round, so a single
+     bad round cannot fill the list. */
+  function weakSpots(limit) {
+    var out = [];
+    C.mocks.forEach(function (m) {
+      var st = state.mock[m.id];
+      if (!st || !st.runs || !st.missed || !st.missed.length) return;
+      out.push({ when: st.last || 0, round: m.title, track: m.track,
+                 id: m.id, n: st.missed.length, sample: st.missed[0] });
+    });
+    out.sort(function (a, b) { return b.n - a.n || b.when - a.when; });
+    return out.slice(0, limit || 5);
+  }
+
+  /* Docs opened recently, from the timestamp viewDoc already writes. */
+  function recentDocs(limit) {
+    var rows = [];
+    Object.keys(state.docs).forEach(function (k) {
+      var st = state.docs[k];
+      if (!st || !st.t) return;
+      var bits = k.split(':');
+      var item = bits[0] === 'p' ? problem(bits[1]) : ref(bits[1]);
+      if (!item) return;
+      rows.push({
+        t: st.t, done: !!st.done, p: st.p || 0,
+        title: item.title,
+        sub: bits[0] === 'p' ? (docOf(item, bits[2]) || {}).label : (item.mins + ' min read'),
+        route: bits[0] === 'p' ? '#/p/' + bits[1] + '/' + bits[2] : '#/r/' + bits[1]
+      });
+    });
+    rows.sort(function (a, b) { return b.t - a.t; });
+    return rows.slice(0, limit || 4);
+  }
+
+  function todayWidget(lld, hld, ai) {
+    var s = streakInfo();
+    var nd = newAndDue();
+
+    /* 'ai' was the hardcoded fallback here regardless of whether a countdown
+       said AI was a long shot - so a brand-new user with 5 days left would
+       see "Run your first mock" next to a recommendation to start the one
+       track the countdown, on the same screen, says to write off. Only the
+       untouched default gets second-guessed; once lastPath is set by an
+       actual visit to a path (see nextStep's caller), that choice is final -
+       someone deliberately working the AI path does not want to be redirected
+       just because it is also the hard one. */
+    var lp = state.lastPath;
+    if (!PATHS[lp]) {
+      lp = 'ai';
+      var triage = countdownTriage(lld, hld, ai);
+      if (triage.status === 'ok') {
+        var aiIsLongShot = triage.longShot.filter(function (x) { return x.n === 'AI'; }).length > 0;
+        if (aiIsLongShot && triage.doable.length) lp = triage.doable[0].n.toLowerCase();
+      }
+    }
+    var nx = nextStep(lp);
+    var lastMock = C.mocks.reduce(function (a, m) {
+      var st = state.mock[m.id];
+      return Math.max(a, (st && st.last) || 0);
+    }, 0);
+    var daysSinceMock = lastMock ? Math.floor((Date.now() - lastMock) / 86400000) : null;
+
+    var jobs = [];
+    if (nd.due) jobs.push({ t: nd.due + ' card' + (nd.due === 1 ? '' : 's') + ' due',
+                            s: 'scheduled for today', go: '#/revise' });
+    else if (nd.fresh) jobs.push({ t: 'Start a deck', s: nd.fresh + ' cards never seen',
+                                   go: '#/revise' });
+    if (nx) jobs.push({ t: nx.label, s: nx.sub + ' \u00b7 ' + PATH_LABEL[lp] + ' path',
+                        go: nx.route });
+    if (daysSinceMock === null) jobs.push({ t: 'Run your first mock',
+                                            s: 'timed, out loud', go: '#/mock' });
+    else if (daysSinceMock >= 7) jobs.push({ t: 'A mock round',
+                                             s: 'last one ' + daysSinceMock + ' days ago',
+                                             go: '#/mock' });
+
+    return '<div class="hero today">'
+      + '<div class="flamerow">'
+      + '<div class="flame' + (s.met ? ' lit' : '') + '">' + icon('flame') + '</div>'
+      + '<div class="flametext"><div class="big">Today</div>'
+      + '<div class="label">' + (s.met
+          ? 'done \u2014 ' + s.cur + ' day' + (s.cur === 1 ? '' : 's') + ' running'
+          : s.n + ' of ' + s.goal + ' toward the goal') + '</div></div>'
+      + '<div class="best"><b>' + s.cur + '</b><span>streak</span></div></div>'
+      + bar(s.goal ? Math.min(1, s.n / s.goal) : 0)
+      + '<div class="todo">' + jobs.slice(0, 3).map(function (j) {
+          return '<button class="todo-row" data-go="' + j.go + '">'
+            + '<span class="dot-lg"></span>'
+            + '<span class="tt">' + esc(j.t) + '<em>' + esc(j.s) + '</em></span>'
+            + '<span class="chev">&#8250;</span></button>';
+        }).join('') + '</div>'
+      + '</div>';
+  }
+
+  function weakWidget() {
+    var all = weakSpots(1000);
+    if (!all.length) return '';
+    var top = all.slice(0, 4);
+
+    /* The itemized list below is capped to the 4 worst rounds, which can hide
+       that one whole track is the real problem - a round-by-round view and a
+       track-by-track view answer different questions ("what do I retry" vs
+       "where do I focus"), so show both rather than picking one. */
+    var byTrack = {};
+    all.forEach(function (x) { byTrack[x.track] = (byTrack[x.track] || 0) + x.n; });
+    var tracks = Object.keys(byTrack).sort(function (a, b) { return byTrack[b] - byTrack[a]; });
+    var tally = tracks.length > 1
+      ? '<div class="wgt-tally">' + tracks.map(function (t) {
+          return '<b>' + t + '</b> ' + byTrack[t];
+        }).join('<span>&middot;</span>') + '</div>'
+      : '';
+
+    return '<div class="wgt"><h3>Weak spots</h3>'
+      + '<p class="wgt-note">Checkpoints you did not mention, from your last run of each round.</p>'
+      + tally
+      + top.map(function (x) {
+          return '<button class="wrow" data-go="#/mock/' + x.id + '">'
+            + '<span class="wn">' + x.n + '</span>'
+            + '<span class="wt">' + esc(x.round) + '<em>' + esc(x.sample) + '</em></span>'
+            + '</button>';
+        }).join('')
+      + '</div>';
+  }
+
+  function recentWidget() {
+    var r = recentDocs(4);
+    if (r.length < 2) return '';
+    return '<div class="wgt"><h3>Recently open</h3>'
+      + r.map(function (x) {
+          return '<button class="wrow" data-go="' + x.route + '">'
+            + '<span class="wn' + (x.done ? ' ok' : '') + '">'
+            + (x.done ? '&#10003;' : Math.round(x.p * 100) + '%') + '</span>'
+            + '<span class="wt">' + esc(x.title) + '<em>' + esc(x.sub || '') + '</em></span>'
+            + '</button>';
+        }).join('')
+      + '</div>';
+  }
+
+  /* Same "local midnight, not UTC" rule as today() - new Date('YYYY-MM-DD') parses
+     as UTC midnight, which would shift the day boundary by the timezone offset and
+     make "3 days left" wrong by one near midnight, exactly the today() bug above. */
+  function parseLocalDate(dstr) {
+    var q = dstr.split('-');
+    return new Date(+q[0], +q[1] - 1, +q[2]);
+  }
+
+  /* The shared read on "where do things stand against the date" - todayWidget
+     needs the doable/longShot split too (to stop recommending a track the
+     countdown itself says to write off), so this is pulled out rather than
+     computed twice. Pure: no rendering, just the numbers and the split. */
+  function countdownTriage(lld, hld, ai) {
+    var dstr = state.settings.interviewDate;
+    if (!dstr) return { status: 'unset' };
+
+    var target = parseLocalDate(dstr);
+    var now = new Date();
+    var startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    var days = Math.round((target - startOfToday) / 86400000);
+    if (days < 0) return { status: 'passed', dstr: dstr };
+
+    var tracks = [{ n: 'LLD', k: lld }, { n: 'HLD', k: hld }, { n: 'AI', k: ai }];
+    tracks.forEach(function (t) {
+      t.left = Math.max(0, Math.round((1 - doneRatio(t.k)) * t.k.length));
+      t.pace = (days > 0 && t.left > 0) ? Math.ceil(t.left / days) : 0;
+    });
+    var remaining = tracks.filter(function (t) { return t.left > 0; });
+
+    if (days === 0) return { status: 'today', days: 0, remaining: remaining };
+    if (!remaining.length) return { status: 'done', days: days };
+
+    /* One blended "sections/day to finish everything" number is honest and
+       useless the moment the tracks are wildly uneven in size - it reads as a
+       single achievable target when really one track is impossible regardless
+       of the other two. A track needing more than 3x the easiest remaining
+       track's pace is not happening alongside the rest in the time left, so
+       split it out rather than let it drag the headline number into fantasy.
+       The 3x line is relative to the other tracks, not a guessed personal
+       capacity - there is no "sections per day a person can do" constant to
+       reach for here, only what the three tracks say about each other. */
+    var minPace = remaining.reduce(function (m, t) { return Math.min(m, t.pace); }, Infinity);
+    var longShot = remaining.filter(function (t) { return t.pace > minPace * 3; });
+    var doable = remaining.filter(function (t) { return t.pace <= minPace * 3; })
+      .sort(function (a, b) { return a.pace - b.pace; });
+
+    return { status: 'ok', days: days, remaining: remaining, doable: doable, longShot: longShot };
+  }
+
+  function countdownWidget(lld, hld, ai) {
+    var t = countdownTriage(lld, hld, ai);
+
+    if (t.status === 'unset') {
+      return '<button class="wgt wgt-cta" data-settings>'
+        + '<h3>Set your interview date</h3>'
+        + '<p class="wgt-note">Get a days-left countdown and the pace you need to finish, in Settings.</p>'
+        + '</button>';
+    }
+    if (t.status === 'passed') {
+      return '<div class="wgt"><h3>Interview date has passed</h3>'
+        + '<p class="wgt-note">' + esc(t.dstr) + ' &middot; update it in Settings when you have a new one.</p></div>';
+    }
+    if (t.status === 'today') {
+      var todayLeft = t.remaining.reduce(function (s, x) { return s + x.left; }, 0);
+      return '<div class="hero mini countdown"><div class="label">Today is the day</div>'
+        + '<div class="big">' + (todayLeft ? todayLeft + ' sections left' : 'Everything is covered') + '</div>'
+        + '</div>';
+    }
+    if (t.status === 'done') {
+      return '<div class="hero mini countdown">'
+        + '<div class="label">' + t.days + (t.days === 1 ? ' day' : ' days') + ' to go</div>'
+        + '<div class="big">Everything is covered<span class="of"> &middot; keep the mocks up</span></div>'
+        + '</div>';
+    }
+
+    var doableLeft = t.doable.reduce(function (s, x) { return s + x.left; }, 0);
+    var headlinePace = Math.ceil(doableLeft / t.days);
+
+    var rows = t.remaining.slice().sort(function (a, b) { return a.pace - b.pace; })
+      .map(function (x) {
+        var isLong = t.longShot.indexOf(x) > -1;
+        return '<div class="cd-row' + (isLong ? ' long' : '') + '"><b>' + x.n + '</b>'
+          + '<span>' + x.left + ' left &middot; ' + x.pace + '/day</span></div>';
+      }).join('');
+
+    var note = '';
+    if (t.longShot.length) {
+      note = '<p class="wgt-note">' + t.longShot.map(function (x) { return x.n; }).join(' and ')
+        + ' ' + (t.longShot.length === 1 ? 'needs' : 'need') + ' '
+        + t.longShot.map(function (x) { return x.pace + '/day'; }).join(', ')
+        + ' alone — not happening alongside the rest in ' + t.days + ' days. '
+        + 'Write it off, or make it the only thing you do.</p>';
+    }
+
+    return '<div class="hero mini countdown">'
+      + '<div class="label">' + t.days + (t.days === 1 ? ' day' : ' days') + ' to go</div>'
+      + '<div class="big">' + headlinePace + ' <span class="of">sections/day to hold '
+      + t.doable.map(function (x) { return x.n; }).join(' + ') + '</span></div>'
+      + '<div class="cd-rows">' + rows + '</div>'
+      + note
+      + '</div>';
+  }
+
   function viewHome() {
     setNav('home');
-    var lld = lldDocKeys(), hld = hldDocKeys();
-    var dueCount = C.decks.reduce(function (n, d) { return n + dueCards(d).length; }, 0);
-    var all = lld.length + hld.length;
-    var done = Math.round(doneRatio(lld) * lld.length + doneRatio(hld) * hld.length);
+    var lld = lldDocKeys(), hld = hldDocKeys(), ai = aiDocKeys();
+    var all = lld.length + hld.length + ai.length;
+    var done = Math.round(doneRatio(lld) * lld.length + doneRatio(hld) * hld.length
+                          + doneRatio(ai) * ai.length);
 
+    var nd = newAndDue();
     var h = '<div class="view">';
-    h += '<div class="hero"><div class="label">Coverage</div>'
-      + '<div class="big">' + done + ' <span style="color:var(--dim);font-weight:600;font-size:.9rem">of '
-      + all + ' sections revised</span></div>'
-      + bar(all ? done / all : 0)
-      + '<div class="stats">'
-      + '<div class="stat"><b>' + C.mocks.length + '</b><span>mocks</span></div>'
-      + '<div class="stat"><b>' + dueCount + '</b><span>cards due</span></div>'
-      + '<div class="stat"><b>' + (state.log[today()] || 0) + '</b><span>done today</span></div>'
-      + '</div></div>';
+
+    /* Today first: the old hero led with a coverage number that reads as 0%
+       for weeks and gives you nothing to do about it. */
+    h += todayWidget(lld, hld, ai);
 
     if (state.last && byId[state.last.book]) {
       var L = state.last;
@@ -609,9 +999,26 @@
         + '</div></div></button>';
     }
 
-    h += '<h2 class="eyebrow">Pick a track</h2>';
+    h += countdownWidget(lld, hld, ai);
+
+    var side = weakWidget() + recentWidget();
+    if (side) h += '<div class="wgts">' + side + '</div>';
+
+    h += '<h2 class="eyebrow">Pick a track</h2><div class="tracks">';
     h += trackTile('LLD', 'One machine. Classes, responsibilities, patterns, working code.', lld);
     h += trackTile('HLD', 'Many machines. Scale, storage, tradeoffs, failure.', hld);
+    h += trackTile('AI', 'LLM systems. RAG, agents, evaluation, cost, failure at scale.', ai);
+    h += '</div>';
+
+    h += '<div class="hero mini"><div class="label">Coverage</div>'
+      + '<div class="big">' + done + ' <span class="of">of ' + all
+      + ' sections revised</span></div>'
+      + bar(all ? done / all : 0)
+      + '<div class="stats">'
+      + '<div class="stat"><b>' + C.mocks.length + '</b><span>mock rounds</span></div>'
+      + '<div class="stat"><b>' + nd.due + '</b><span>cards due</span></div>'
+      + '<div class="stat"><b>' + nd.fresh + '</b><span>never seen</span></div>'
+      + '</div></div>';
 
     var starred = C.problems.filter(function (p) { return state.star[p.id]; });
     if (starred.length) {
@@ -619,50 +1026,333 @@
       starred.forEach(function (p) { h += problemCard(p); });
     }
     h += '</div>';
-    render(h, 'System Design', C.problems.length + ' LLD &middot; ' + trackMocks('HLD').length + ' HLD', true);
+    render(h, 'Interview Prep', lldProblems().length + ' LLD &middot; '
+      + trackMocks('HLD').length + ' HLD &middot; ' + aiProblems().length + ' AI', true);
+  }
+
+  // ----------------------------------------------------------------- path
+
+  /* 44 cards and a wish of luck is not a plan. The path is one ordered route
+     through the material, so "what do I do next" has exactly one answer. */
+  /* Shared by all three paths. rs() takes reference ids, ps() takes problems. */
+  function rs(ids) {
+    return ids.map(ref).filter(Boolean).map(function (r) { return { kind: 'r', item: r }; });
+  }
+  function ps(list) {
+    return list.map(function (p) { return { kind: 'p', item: p }; });
+  }
+  function refsIn(group) {
+    return rs(C.refs.filter(function (r) { return r.group === group; })
+                .map(function (r) { return r.id; }));
+  }
+
+  function aiPath() {
+    var topics = aiProblems('topic'), design = aiProblems('design');
+    return [
+      { key: 'orient', title: 'Get oriented',
+        blurb: 'How the track works, how to defend a project you built, and how to talk about numbers without getting caught out.',
+        items: rs(['ai-README', 'ai-AI-defense-process', 'ai-AI-metrics-discipline']) },
+      { key: 'found', title: 'Foundations',
+        blurb: 'Serving, retrieval, cost, evaluation. What an AI round opens with, every time.',
+        items: ps(topics.slice(0, 7)) },
+      { key: 'agents', title: 'Agents and production',
+        blurb: 'Orchestration, tool use, and everything that breaks once real traffic shows up.',
+        items: ps(topics.slice(7)) },
+      { key: 'design', title: 'Design scenarios',
+        blurb: 'The whiteboard round. One system per card, the same five parts each time.',
+        items: ps(design) },
+      { key: 'refs', title: 'Reference and rubrics',
+        blurb: 'Architectures worth copying, and the rubric an interviewer is quietly scoring you against.',
+        items: rs(['ai-AI-architecture-diagrams', 'ai-AI-scaling-rubric', 'ai-AI-concepts-glossary']) },
+      { key: 'bank', title: 'Question bank',
+        blurb: 'Sixty-eight questions that do not depend on your projects, plus what to say when you do not know.',
+        items: rs(['ai-AI-general-question-bank', 'ai-AI-behavioral-honesty']) },
+      { key: 'mocks', title: 'Mock rounds',
+        blurb: 'Timed. Say the answer out loud before you open the solution.',
+        items: [], mocks: trackMocks('AI') },
+      { key: 'final', title: 'The last pass',
+        blurb: 'The night before. One sheet, nothing new.',
+        items: rs(['ai-AI-fast-revision']) }
+    ];
+  }
+
+  /* LLD had been one 65-section lump at the end of the AI path, which is not a
+     route through anything. It is its own track with its own method. */
+  function lldPath() {
+    var probs = lldProblems();
+    return [
+      { key: 'l.orient', title: 'Get oriented',
+        blurb: 'How the track works, and the process an interviewer expects you to follow out loud.',
+        items: rs(['README', 'LLD-HLD-process']) },
+      { key: 'l.method', title: 'The method',
+        blurb: 'Finding entities, asking the clarifying questions, and turning nouns into classes. This is the part that transfers to a problem you have never seen.',
+        items: rs(['LLD-entity-playbook', 'python-classes-cheatsheet']) },
+      { key: 'l.core', title: 'Core problems',
+        blurb: 'The eight that come up most. Working code, not diagrams.',
+        items: ps(probs.slice(0, 8)) },
+      { key: 'l.harder', title: 'Harder problems',
+        blurb: 'Where the state machines get real and the patterns start earning their place.',
+        items: ps(probs.slice(8)) },
+      { key: 'l.mocks', title: 'Mock rounds',
+        blurb: 'Timed. Write the class list before you open the solution.',
+        items: [], mocks: trackMocks('LLD') },
+      { key: 'l.ref', title: 'Patterns reference',
+        blurb: 'The pattern names, and the pain each one exists to remove.',
+        items: rs(['LLD-patterns', 'LLD-pain-to-pattern']) }
+    ];
+  }
+
+  /* HLD was absent entirely, despite 15 mock rounds, 15 round guides and the
+     per-problem companions living inside the LLD problems. */
+  function hldPath() {
+    var companions = lldProblems().filter(function (p) {
+      return p.docs.some(function (d) { return d.key === 'hld'; });
+    });
+    return [
+      { key: 'h.basics', title: 'New to HLD? Start here',
+        blurb: 'The six building blocks, the numbers worth memorising, and the nine steps.',
+        items: rs(['HLD-BASICS', 'HLD-revision']) },
+      { key: 'h.rounds', title: 'The rounds',
+        blurb: 'Fifteen systems, each walked through the same way. Read these before attempting the timed version.',
+        items: refsIn('HLD rounds') },
+      { key: 'h.comp', title: 'Per-problem companions',
+        blurb: 'The HLD side of a problem you have already built at class level. The cheapest way to practise scaling something you understand.',
+        items: companions.map(function (p) {
+          return { kind: 'p', item: p, only: 'hld' };
+        }) },
+      { key: 'h.mocks', title: 'Mock rounds',
+        blurb: 'Timed. Estimate before you draw.',
+        items: [], mocks: trackMocks('HLD') },
+      { key: 'h.ref', title: 'Reference',
+        blurb: 'The method bank and the deep reference, for when you are stuck mid-round.',
+        items: rs(['HLD-method-bank', 'HLD-reference']) }
+    ];
+  }
+
+  var PATHS = { ai: aiPath, lld: lldPath, hld: hldPath };
+
+  function pathStages(track) {
+    var fn = PATHS[track] || PATHS.ai;
+    return fn().filter(function (s) {
+      return s.items.length || (s.mocks && s.mocks.length);
+    });
+  }
+
+  /* An item can target one doc of a problem rather than all of them - the HLD
+     companions are a single tab inside an otherwise-LLD problem, and counting
+     the other four against HLD progress would be wrong. */
+  function itemDocs(it) {
+    if (it.kind !== 'p') return [docKey('r', it.item.id)];
+    return it.item.docs
+      .filter(function (d) { return !it.only || d.key === it.only; })
+      .map(function (d) { return docKey('p', it.item.id, d.key); });
+  }
+
+  function itemRoute(it) {
+    if (it.kind !== 'p') return '#/r/' + it.item.id;
+    return '#/p/' + it.item.id + '/' + (it.only || it.item.docs[0].key);
+  }
+
+  function stageKeys(s) {
+    var keys = [];
+    s.items.forEach(function (it) { keys.push.apply(keys, itemDocs(it)); });
+    return keys;
+  }
+
+  function stageStat(s) {
+    if (s.mocks) {
+      return { done: s.mocks.filter(function (m) { return mockStat(m.id).runs; }).length,
+               total: s.mocks.length, unit: 'attempted' };
+    }
+    var keys = stageKeys(s);
+    return { done: keys.filter(function (k) { return state.docs[k] && state.docs[k].done; }).length,
+             total: keys.length, unit: 'sections' };
+  }
+
+  function isDoneKey(k) { return !!(state.docs[k] && state.docs[k].done); }
+
+  /* The one next thing: the first unread section of the first unfinished
+     stage. Nothing is locked - this points, it does not gate. */
+  function nextStep(track) {
+    var stages = pathStages(track);
+    for (var i = 0; i < stages.length; i++) {
+      var s = stages[i], j;
+      if (s.mocks) {
+        for (j = 0; j < s.mocks.length; j++) {
+          if (!mockStat(s.mocks[j].id).runs) {
+            return { stage: s, label: s.mocks[j].title, sub: 'mock round',
+                     route: '#/mock/' + s.mocks[j].id };
+          }
+        }
+        continue;
+      }
+      for (j = 0; j < s.items.length; j++) {
+        var it = s.items[j];
+        var keys = itemDocs(it);
+        for (var q = 0; q < keys.length; q++) {
+          if (!isDoneKey(keys[q])) {
+            var sub = it.kind === 'r'
+              ? it.item.mins + ' min read'
+              : (it.only ? 'HLD' : it.item.docs[q].label);
+            return { stage: s, label: it.item.title, sub: sub,
+                     route: it.kind === 'r' ? '#/r/' + it.item.id
+                                            : '#/p/' + it.item.id + '/'
+                                              + (it.only || it.item.docs[q].key) };
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  function streakBox() {
+    var s = streakInfo();
+    return '<div class="hero streakbox">'
+      + '<div class="flamerow">'
+      + '<div class="flame' + (s.met ? ' lit' : '') + '">' + icon('flame') + '</div>'
+      + '<div class="flametext">'
+      + '<div class="big">' + s.cur + '<span class="unit"> day' + (s.cur === 1 ? '' : 's') + '</span></div>'
+      + '<div class="label">'
+      + (s.met ? 'today is done' : s.n + ' of ' + s.goal + ' toward today')
+      + '</div></div>'
+      + '<div class="best"><b>' + s.best + '</b><span>best</span></div>'
+      + '</div>'
+      + weekStrip()
+      + '</div>';
+  }
+
+  /* A problem card for a single tab of a problem - the HLD companions. */
+  function docCard(it) {
+    var d = docOf(it.item, it.only);
+    var st = state.docs[docKey('p', it.item.id, it.only)];
+    return '<button class="card" data-go="' + itemRoute(it) + '"><div class="card-row">'
+      + '<div class="num' + (st && st.done ? ' done' : '') + '">'
+      + (st && st.done ? '&#10003;' : it.item.num) + '</div>'
+      + '<div class="body"><h3>' + esc(it.item.title) + '</h3>'
+      + '<div class="meta">the ' + esc(d.label) + ' side of the same problem</div>'
+      + '</div></div></button>';
+  }
+
+  function nextCard(nx) {
+    if (!nx) return '<div class="empty">Every stage is finished. Go and do the interview.</div>';
+    return '<button class="card nextup" data-go="' + esc(nx.route) + '"><div class="card-row">'
+      + '<div class="num play">&#9654;</div>'
+      + '<div class="body"><h3>' + esc(nx.label) + '</h3>'
+      + '<div class="meta">' + esc(nx.sub) + ' &middot; ' + esc(nx.stage.title) + '</div>'
+      + '</div></div></button>';
+  }
+
+  var PATH_LABEL = { ai: 'AI', lld: 'LLD', hld: 'HLD' };
+
+  function pathChips(active) {
+    return '<div class="chips" role="tablist" aria-label="Path">'
+      + ['ai', 'lld', 'hld'].map(function (t) {
+          var st = pathStages(t).reduce(function (a, s) {
+            var q = stageStat(s); a.done += q.done; a.total += q.total; return a;
+          }, { done: 0, total: 0 });
+          var on = t === active;
+          return '<button class="chip' + (on ? ' on' : '') + '" role="tab"'
+            + ' aria-selected="' + (on ? 'true' : 'false') + '"'
+            + ' data-go="#/path/' + t + '">' + PATH_LABEL[t]
+            + '<span class="chip-n">' + Math.round(st.total ? st.done / st.total * 100 : 0)
+            + '%</span></button>';
+        }).join('')
+      + '</div>';
+  }
+
+  function viewPath(track) {
+    setNav('path');
+    track = PATHS[track] ? track : 'ai';
+    state.lastPath = track;
+    save();
+    var stages = pathStages(track);
+    var h = '<div class="view">' + streakBox() + pathChips(track)
+      + '<h2 class="eyebrow">Next up</h2>' + nextCard(nextStep(track))
+      + '<h2 class="eyebrow">The path</h2><ol class="road">';
+
+    var reached = false;
+    stages.forEach(function (st, i) {
+      var q = stageStat(st);
+      var full = q.total && q.done >= q.total;
+      var now = !full && !reached;
+      if (now) reached = true;
+      h += '<li class="stage ' + (full ? 'done' : now ? 'now' : 'todo') + '">'
+        + '<div class="node">' + (full ? '&#10003;' : (i + 1)) + '</div>'
+        + '<details class="scard"' + (now ? ' open' : '') + '>'
+        + '<summary><h3>' + esc(st.title) + '</h3>'
+        + '<div class="meta">' + q.done + ' of ' + q.total + ' ' + q.unit
+        + (now ? ' &middot; <b>you are here</b>' : '') + '</div>'
+        + bar(q.total ? q.done / q.total : 0)
+        + '</summary>'
+        + '<p class="blurb">' + esc(st.blurb) + '</p>'
+        + '<div class="stagelist">'
+        + (st.mocks ? st.mocks.map(mockCard).join('')
+                    : st.items.map(function (it) {
+                        if (it.kind === 'r') return refCard(it.item);
+                        return it.only ? docCard(it) : problemCard(it.item);
+                      }).join(''))
+        + '</div></details></li>';
+    });
+    h += '</ol></div>';
+    render(h, 'Your path', PATH_LABEL[track] + ' &middot; ' + stages.length + ' stages', true);
   }
 
   function viewTrack(track) {
     setNav('home');
-    var isLld = track === 'lld';
-    var h = '<div class="view">';
+    var isLld = track === 'lld', isAi = track === 'ai';
+    var name = isAi ? 'AI' : (isLld ? 'LLD' : 'HLD');
+    var h = '<div class="view">' + trackChips(track);
 
-    if (isLld) {
-      h += '<h2 class="eyebrow">Read &amp; build</h2>';
-      C.problems.forEach(function (p) { h += problemCard(p); });
-      h += '<h2 class="eyebrow">Reference</h2>';
-      C.refs.filter(function (r) { return r.group === 'LLD' || r.group === 'Start here'; })
-        .forEach(function (r) { h += refCard(r); });
+    function cards(list, fn) { return list.map(fn).join(''); }
+
+    if (isAi) {
+      var topics = aiProblems('topic'), designs = aiProblems('design');
+      h += sect('ai.topics', 'Concept topics', topics.length,
+                cards(topics, problemCard));
+      if (designs.length) {
+        h += sect('ai.design', 'Design scenarios', designs.length,
+                  cards(designs, problemCard));
+      }
+      var aiRefs = C.refs.filter(function (r) { return r.group === 'AI'; });
+      h += sect('ai.ref', 'Reference', aiRefs.length, cards(aiRefs, refCard));
+    } else if (isLld) {
+      var lp = lldProblems();
+      h += sect('lld.build', 'Read &amp; build', lp.length, cards(lp, problemCard));
+      var lr = C.refs.filter(function (r) { return r.group === 'LLD' || r.group === 'Start here'; });
+      h += sect('lld.ref', 'Reference', lr.length, cards(lr, refCard));
     } else {
       var basics = ref('HLD-BASICS');
-      if (basics) {
-        h += '<h2 class="eyebrow">New to HLD? Start here</h2>' + refCard(basics);
-      }
-      h += '<h2 class="eyebrow">The 10 rounds</h2>';
-      C.refs.filter(function (r) { return r.group === 'HLD rounds'; })
-        .forEach(function (r) { h += refCard(r); });
-      h += '<h2 class="eyebrow">Per-problem HLD companions</h2>';
-      C.problems.forEach(function (p) {
-        if (!p.docs.some(function (d) { return d.key === 'hld'; })) return;
+      if (basics) h += sect('hld.basics', 'New to HLD? Start here', '', refCard(basics));
+      var rounds = C.refs.filter(function (r) { return r.group === 'HLD rounds'; });
+      h += sect('hld.rounds', 'The rounds', rounds.length, cards(rounds, refCard));
+      var comp = lldProblems().filter(function (p) {
+        return p.docs.some(function (d) { return d.key === 'hld'; });
+      });
+      h += sect('hld.comp', 'Per-problem HLD companions', comp.length, cards(comp, function (p) {
         var st = state.docs[docKey('p', p.id, 'hld')];
-        h += '<button class="card" data-go="#/p/' + p.id + '/hld"><div class="card-row">'
-          + '<div class="num' + (st && st.done ? ' done' : '') + '">' + (st && st.done ? '&#10003;' : p.num) + '</div>'
+        return '<button class="card" data-go="#/p/' + p.id + '/hld"><div class="card-row">'
+          + '<div class="num' + (st && st.done ? ' done' : '') + '">'
+          + (st && st.done ? '&#10003;' : p.num) + '</div>'
           + '<div class="body"><h3>' + esc(p.title) + '</h3>'
           + '<div class="meta">the HLD side of the same problem</div></div></div></button>';
-      });
-      h += '<h2 class="eyebrow">Reference</h2>';
-      C.refs.filter(function (r) { return r.group === 'HLD' && r.id !== 'HLD-BASICS'; })
-        .forEach(function (r) { h += refCard(r); });
+      }));
+      var hr = C.refs.filter(function (r) { return r.group === 'HLD' && r.id !== 'HLD-BASICS'; });
+      h += sect('hld.ref', 'Reference', hr.length, cards(hr, refCard));
     }
 
-    var ms = trackMocks(isLld ? 'LLD' : 'HLD');
-    if (ms.length) {
-      h += '<h2 class="eyebrow">Mock it &middot; ' + ms.length + ' rounds</h2>';
-      ms.forEach(function (m) { h += mockCard(m); });
-    }
+    var ms = trackMocks(name);
+    h += sect(track + '.mocks', 'Mock it', ms.length ? ms.length + ' rounds' : '',
+              cards(ms, mockCard));
     h += '</div>';
-    render(h, isLld ? 'LLD' : 'HLD',
-      isLld ? 'one machine' : 'many machines', true, { back: true, backTo: '#/' });
+    render(h, name, isAi ? 'LLM systems' : (isLld ? 'one machine' : 'many machines'),
+      true, { back: true, backTo: '#/', actions: collapseAllBtn() });
+  }
+
+  function collapseAllBtn() {
+    return '<button class="iconbtn" data-collapse aria-label="Expand or collapse all sections">'
+      + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"'
+      + ' stroke-linecap="round" stroke-linejoin="round">'
+      + '<path d="M8 9l4-4 4 4"/><path d="M16 15l-4 4-4-4"/></svg></button>';
   }
 
   function refCard(r) {
@@ -696,26 +1386,117 @@
       + '</div></div></button>';
   }
 
+  /* 51 reference docs in one flat scroll meant hunting. Now: a filter row so
+     one track's material is all you see, groups that fold, and on a wide
+     screen the cards lay out in columns instead of one tall ribbon. */
+  var conceptFilter = 'all';
+
+  /* Regrouped by PURPOSE. The old grouping was by source folder, which is an
+     artefact of where files live and told a reader nothing about when to open
+     one. Method vs Reference vs Last pass answers "which of these do I need
+     right now", which is the only question this tab exists to serve. */
+  var CONCEPT_ORDER = ['Method', 'Reference', 'Last pass', 'More'];
+
+  var CONCEPT_PURPOSE = {
+    // how to approach a round - read before you practise
+    'ai-README': 'Method', 'ai-AI-defense-process': 'Method',
+    'ai-AI-metrics-discipline': 'Method', 'ai-AI-scaling-rubric': 'Method',
+    'README': 'Method', 'LLD-HLD-process': 'Method',
+    'LLD-entity-playbook': 'Method', 'HLD-revision': 'Method',
+    'HLD-method-bank': 'Method', 'HLD-BASICS': 'Method',
+    // look things up mid-problem
+    'ai-AI-architecture-diagrams': 'Reference', 'ai-AI-concepts-glossary': 'Reference',
+    'ai-AI-general-question-bank': 'Reference', 'ai-AI-design-scenarios': 'Reference',
+    'ai-AI-design-scenarios-2': 'Reference', 'ai-AI-design-scenarios-3': 'Reference',
+    'LLD-patterns': 'Reference', 'LLD-pain-to-pattern': 'Reference',
+    'python-classes-cheatsheet': 'Reference', 'HLD-reference': 'Reference',
+    // the night before
+    'ai-AI-fast-revision': 'Last pass', 'ai-AI-behavioral-honesty': 'Last pass'
+  };
+
+  /* Mock companions are the SAME documents the Mock tab lists as rounds, and
+     INDEX/FORMAT document the authoring file format. Neither belongs in a
+     browse-the-material tab; together they were 27 of 51 entries. */
+  function isBrowsable(r) {
+    if (r.group === 'AI rounds' || r.group === 'HLD rounds') return false;
+    if (r.id === 'INDEX' || r.id === 'FORMAT'
+        || r.id === 'ai-INDEX' || r.id === 'ai-FORMAT') return false;
+    return true;
+  }
+
+  function purposeOf(r) { return CONCEPT_PURPOSE[r.id] || 'More'; }
+
+  function conceptGroups() {
+    var groups = {};
+    C.refs.filter(isBrowsable).forEach(function (r) {
+      var g = purposeOf(r);
+      (groups[g] = groups[g] || []).push(r);
+    });
+    var keys = Object.keys(groups).sort(function (a, b) {
+      var ia = CONCEPT_ORDER.indexOf(a), ib = CONCEPT_ORDER.indexOf(b);
+      return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+    });
+    return { groups: groups, keys: keys };
+  }
+
+  /* Track of a single reference. Groups no longer map one-to-one to tracks now
+     that grouping is by purpose, so this reads the id and the source group. */
+  function refTrack(r) {
+    if (r.id.indexOf('ai-') === 0 || r.group === 'AI') return 'AI';
+    if (r.id.indexOf('HLD') === 0 || r.group === 'HLD') return 'HLD';
+    return 'LLD';
+  }
+
+  function conceptCard(r) {
+    var st = state.docs[docKey('r', r.id)];
+    return '<button class="card" data-go="#/r/' + r.id + '"><div class="card-row">'
+      + '<div class="num' + (st && st.done ? ' done' : '') + '" style="font-size:1rem">'
+      + (st && st.done ? '&#10003;' : '&#9776;') + '</div>'
+      + '<div class="body"><h3>' + esc(r.title) + '</h3>'
+      + '<div class="meta">' + r.mins + ' min read</div>'
+      + (st && st.p > 0.08 && !st.done ? bar(st.p) : '')
+      + '</div></div></button>';
+  }
+
   function viewConcepts() {
     setNav('concepts');
-    var h = '<div class="view">';
-    var groups = {};
-    C.refs.forEach(function (r) { (groups[r.group] = groups[r.group] || []).push(r); });
-    Object.keys(groups).forEach(function (g) {
-      h += '<h2 class="eyebrow">' + esc(g) + '</h2>';
-      groups[g].forEach(function (r) {
-        var st = state.docs[docKey('r', r.id)];
-        h += '<button class="card" data-go="#/r/' + r.id + '"><div class="card-row">'
-          + '<div class="num' + (st && st.done ? ' done' : '') + '" style="font-size:1rem">'
-          + (st && st.done ? '&#10003;' : '&#9776;') + '</div>'
-          + '<div class="body"><h3>' + esc(r.title) + '</h3>'
-          + '<div class="meta">' + r.mins + ' min read</div>'
-          + (st && st.p > 0.08 && !st.done ? bar(st.p) : '')
-          + '</div></div></button>';
-      });
+    var g = conceptGroups();
+
+    var browsable = C.refs.filter(isBrowsable);
+    var tracks = ['all'];
+    var counts = { all: browsable.length };
+    browsable.forEach(function (r) {
+      var t = refTrack(r);
+      if (tracks.indexOf(t) < 0) tracks.push(t);
+      counts[t] = (counts[t] || 0) + 1;
     });
+    if (tracks.indexOf(conceptFilter) < 0) conceptFilter = 'all';
+
+    var h = '<div class="view">';
+    h += '<div class="chips chips-wrap" role="tablist" aria-label="Filter references">'
+      + tracks.map(function (t) {
+          var on = t === conceptFilter;
+          return '<button class="chip' + (on ? ' on' : '') + '" role="tab"'
+            + ' aria-selected="' + (on ? 'true' : 'false') + '"'
+            + ' data-cfilter="' + t + '">' + (t === 'all' ? 'All' : t)
+            + '<span class="chip-n">' + (counts[t] || 0) + '</span></button>';
+        }).join('')
+      + '</div>';
+
+    /* A purpose group spans tracks, so filter the CARDS rather than the group. */
+    var shown = 0;
+    g.keys.forEach(function (k) {
+      var list = g.groups[k].filter(function (r) {
+        return conceptFilter === 'all' || refTrack(r) === conceptFilter;
+      });
+      if (!list.length) return;
+      shown += list.length;
+      h += sect('c.' + k, esc(k), list.length, list.map(conceptCard).join(''));
+    });
+    if (!shown) h += '<p class="empty">Nothing in this filter.</p>';
     h += '</div>';
-    render(h, 'Concepts', 'Frameworks & references', true);
+    render(h, 'Concepts', browsable.length + ' references', true,
+           { actions: collapseAllBtn() });
   }
 
   // ------------------------------------------------------------- reader
@@ -744,16 +1525,19 @@
       + '<div style="height:70px"></div></div>';
 
     var title = kind === 'p' ? item.title : item.title;
-    var subtitle = kind === 'p' ? ('Problem ' + item.num + ' &middot; ' + d.label) : item.group;
+    var subtitle = kind === 'p' ? (posLabel(item) + ' &middot; ' + d.label) : item.group;
     render(h, esc(title), subtitle, false, {
       back: true,
-      actions: (kind === 'p'
+      actions: '<button class="iconbtn" data-go="#/" aria-label="Home">'
+        + icon('home') + '</button>'
+        + (kind === 'p'
         ? '<button class="iconbtn' + (state.star[id] ? ' on' : '') + '" data-star aria-label="Star this problem" aria-pressed="'
           + (state.star[id] ? 'true' : 'false') + '">' + icon('star') + '</button>'
         : '')
         + (toc.length ? '<button class="iconbtn" data-toc aria-label="Table of contents">' + icon('list') + '</button>' : '')
     });
     setNav(null);
+    document.body.classList.add('reading');
 
     currentDoc = { kind: kind, id: id, sub: kind === 'p' ? d.key : '', key: key, toc: toc, item: item, docObj: d };
 
@@ -771,6 +1555,22 @@
     var line = document.createElement('div');
     line.className = 'progressline';
     document.body.appendChild(line);
+
+    /* Explained runs past 3,000 words, so the heading you are under scrolls
+       out of sight long before the section ends. Pin it; tapping it opens
+       the full contents. */
+    var crumb = null, crumbAt = null;
+    var heads = $$('.prose h2, .prose h3');
+    if (heads.length > 2) {
+      crumb = document.createElement('button');
+      crumb.className = 'crumb';
+      crumb.setAttribute('data-toc', '');
+      crumb.setAttribute('aria-label', 'Current section - open contents');
+      document.body.appendChild(crumb);
+      /* sit directly under whichever bars this view actually has */
+      var anchor = $('.tabs') || $('.appbar');
+      if (anchor) crumb.style.top = Math.round(anchor.getBoundingClientRect().bottom) + 'px';
+    }
 
     // highlight search terms and jump to the first one
     if (query) {
@@ -793,8 +1593,22 @@
     save();
 
     scrollSaver = function () {
+      /* every measurement first, then the writes - mixing them forces a
+         layout on each scroll event */
       var max = document.body.scrollHeight - window.innerHeight;
       var p = max > 0 ? clamp(window.scrollY / max, 0, 1) : 1;
+      var cur = '';
+      if (crumb) {
+        for (var hi = 0; hi < heads.length; hi++) {
+          if (heads[hi].getBoundingClientRect().top < 96) cur = heads[hi].textContent;
+          else break;
+        }
+        if (cur !== crumbAt) {
+          crumbAt = cur;
+          crumb.textContent = cur;
+          crumb.classList.toggle('on', !!cur);
+        }
+      }
       line.style.width = (p * 100) + '%';
       st.p = p;
       if (p > 0.94 && !st.done) markDone(true, true);
@@ -809,20 +1623,56 @@
     var out = {};
     if (i > 0) out.prev = { route: '#/p/' + p.id + '/' + p.docs[i - 1].key, label: p.docs[i - 1].label };
     if (i < p.docs.length - 1) out.next = { route: '#/p/' + p.id + '/' + p.docs[i + 1].key, label: p.docs[i + 1].label };
-    if (!out.next) {
-      var pi = C.problems.indexOf(p);
-      if (pi > -1 && pi < C.problems.length - 1) {
-        var np = C.problems[pi + 1];
-        out.next = { route: '#/p/' + np.id + '/' + np.docs[0].key, label: np.title.split(' ')[0] };
-      }
+    /* Roll over the ends of a problem into its neighbour in the SAME track
+       and section, so reading straight through never dumps you in LLD. */
+    var sib = siblings(p), si = sib.indexOf(p);
+    if (!out.prev && si > 0) {
+      var pp = sib[si - 1], pd = pp.docs[pp.docs.length - 1];
+      out.prev = { route: '#/p/' + pp.id + '/' + pd.key, label: unitName(pp) + ' ' + pp.num };
+    }
+    if (!out.next && si > -1 && si < sib.length - 1) {
+      var np = sib[si + 1];
+      out.next = { route: '#/p/' + np.id + '/' + np.docs[0].key, label: unitName(np) + ' ' + np.num };
     }
     return out;
+  }
+
+  function openToc() {
+    if (!currentDoc || !currentDoc.toc.length) return;
+    sheet('<h4>Sections</h4><div class="toc">' + currentDoc.toc.map(function (x) {
+      return '<a href="#' + x.id + '" data-tocjump="' + x.id + '" class="h' + x.lvl + '">' + esc(x.text) + '</a>';
+    }).join('') + '</div>');
+  }
+
+  /* These keys already worked; nothing ever said so. */
+  var KEYS = [
+    ['j&nbsp;/&nbsp;k', 'Scroll down / up'],
+    ['n&nbsp;/&nbsp;p', 'Next / previous section, rolling into the next problem'],
+    ['&rarr;&nbsp;/&nbsp;&larr;', 'The same, on the arrow keys'],
+    [']&nbsp;/&nbsp;[', 'Skip a whole problem forward / back'],
+    ['m', 'Mark revised'],
+    ['t', 'Contents of this page'],
+    ['/', 'Search everything'],
+    ['Space', 'Flip a flashcard'],
+    ['1&nbsp;/&nbsp;2', 'Grade it: again / good'],
+    ['Esc', 'Close a sheet or a full-screen diagram'],
+    ['?', 'This list']
+  ];
+
+  function shortcutSheet() {
+    sheet('<h4>Keyboard</h4><div class="keys">'
+      + KEYS.map(function (k) {
+        return '<div><kbd>' + k[0] + '</kbd><span>' + k[1] + '</span></div>';
+      }).join('')
+      + '</div>');
   }
 
   function markDone(val, silent) {
     if (!currentDoc) return;
     var st = doc(currentDoc.key);
+    var fresh = val && !st.done;
     st.done = val ? 1 : 0;
+    if (fresh) bump();
     save();
     var btn = $('.readerbar [data-done]');
     if (btn) {
@@ -857,49 +1707,115 @@
   // ------------------------------------------------------------- search
 
   var index = null;
+  /* What to index.
+
+     Mermaid blocks are 7% of the corpus and mostly syntax, so indexing them
+     raw means "flowchart" returns forty diagram files and every node id
+     competes with a real word. But 55% of a mermaid block is quoted LABEL
+     text - "Input guard, under 20 ms" - which is prose worth finding. So keep
+     the labels, drop the syntax.
+
+     Every other fence stays. A solution doc is entirely one python fence:
+     stripping fences wholesale reduced all 46 of them to zero characters and
+     made them unsearchable, which is how this comment came to exist. */
+  function searchText(md) {
+    return md.replace(/```mermaid\n([\s\S]*?)```/g, function (_, body) {
+      var labels = body.match(/"[^"]{3,}"/g) || [];
+      return ' ' + labels.join(' ').replace(/<br\s*\/?>/g, ' ').replace(/"/g, '') + ' ';
+    });
+  }
+
+  function headingText(md) {
+    var out = [];
+    md.replace(/^#{1,4}\s+(.+)$/gm, function (_, t) { out.push(t); return ''; });
+    return out.join(' ');
+  }
+
+  function indexEntry(title, sub, route, md, group) {
+    var body = searchText(md);
+    return {
+      title: title, sub: sub, route: route, group: group,
+      md: body, low: body.toLowerCase(),
+      heads: headingText(body).toLowerCase(),
+      len: body.length
+    };
+  }
+
   function buildIndex() {
     if (index) return index;
     index = [];
     C.problems.forEach(function (p) {
       p.docs.forEach(function (d) {
-        index.push({
-          title: p.title, sub: 'Problem ' + p.num + ' - ' + d.label,
-          route: '#/p/' + p.id + '/' + d.key, md: d.md, low: d.md.toLowerCase()
-        });
+        index.push(indexEntry(p.title, 'Problem ' + p.num + ' - ' + d.label,
+                              '#/p/' + p.id + '/' + d.key, d.md, 'p:' + p.id));
       });
     });
     C.refs.forEach(function (r) {
-      index.push({ title: r.title, sub: r.group, route: '#/r/' + r.id, md: r.md, low: r.md.toLowerCase() });
+      index.push(indexEntry(r.title, r.group, '#/r/' + r.id, r.md, 'r:' + r.id));
     });
+    MEDIAN_LEN = index.map(function (e) { return e.len; })
+      .sort(function (a, b) { return a - b; })[Math.floor(index.length / 2)] || 1;
     return index;
   }
+
+  var MEDIAN_LEN = 1;
+
+  var PER_GROUP = 2;      // sections of one problem allowed on the results page
+  var SHOWN = 30;
 
   function search(q) {
     var idx = buildIndex();
     var terms = q.toLowerCase().split(/\s+/).filter(Boolean);
-    if (!terms.length) return [];
-    var results = [];
+    if (!terms.length) return { rows: [], total: 0 };
+
+    var hits = [];
     idx.forEach(function (e) {
-      var score = 0, spots = [];
+      var score = 0, spots = [], missing = false;
       terms.forEach(function (t) {
         var at = e.low.indexOf(t), count = 0;
-        while (at > -1 && count < 40) {
+        while (at > -1 && count < 200) {
           if (spots.length < 3) spots.push(at);
           count++;
           at = e.low.indexOf(t, at + t.length);
         }
-        if (count) score += count + (e.title.toLowerCase().indexOf(t) > -1 ? 25 : 0);
-        else score -= 1000;
+        if (!count) { missing = true; return; }
+        /* Saturating term frequency: the fortieth mention is not worth forty
+           times the first, and raw counts let a long rambling document beat a
+           short exact one. */
+        var tf = count / (count + 2);
+        /* Length normalisation against the median document. Without it the
+           longest file in the corpus wins nearly every query. */
+        var norm = Math.sqrt(MEDIAN_LEN / Math.max(e.len, 400));
+        score += tf * norm * 40;
+        if (e.title.toLowerCase().indexOf(t) > -1) score += 30;
+        if (e.heads.indexOf(t) > -1) score += 12;
       });
-      if (score > 0) {
-        results.push({
-          entry: e, score: score,
-          snips: spots.slice(0, 2).map(function (at) { return snippet(e.md, at, terms); })
-        });
+      if (missing || score <= 0) return;
+      hits.push({
+        entry: e, score: score,
+        snips: spots.slice(0, 2).map(function (at) { return snippet(e.md, at, terms); })
+      });
+    });
+
+    hits.sort(function (a, b) { return b.score - a.score; });
+
+    /* Diversity. Five sections of one problem are five near-identical rows that
+       push every other problem off the page - the same crowding that generated
+       code causes in a code search. Keep the best few per problem and say how
+       many more there are. */
+    var seen = {}, rows = [];
+    hits.forEach(function (r) {
+      var g = r.entry.group;
+      seen[g] = (seen[g] || 0) + 1;
+      if (seen[g] <= PER_GROUP) rows.push(r);
+      else if (seen[g] === PER_GROUP + 1) rows[rows.length - 1].more = 0;
+      if (seen[g] > PER_GROUP) {
+        for (var i = rows.length - 1; i >= 0; i--) {
+          if (rows[i].entry.group === g) { rows[i].more = (rows[i].more || 0) + 1; break; }
+        }
       }
     });
-    results.sort(function (a, b) { return b.score - a.score; });
-    return results.slice(0, 40);
+    return { rows: rows.slice(0, SHOWN), total: hits.length, shown: Math.min(rows.length, SHOWN) };
   }
 
   function snippet(md, at, terms) {
@@ -933,14 +1849,19 @@
         return;
       }
       var res = search(val);
-      if (!res.length) {
+      if (!res.rows.length) {
         box.innerHTML = '<div class="empty">No matches for "' + esc(val) + '"</div>';
         return;
       }
-      box.innerHTML = '<h2 class="eyebrow">' + res.length + ' result' + (res.length > 1 ? 's' : '') + '</h2>'
-        + res.map(function (r) {
+      var head = res.total + ' match' + (res.total > 1 ? 'es' : '')
+        + (res.total > res.shown ? ' &middot; showing ' + res.shown : '');
+      box.innerHTML = '<h2 class="eyebrow">' + head + '</h2>'
+        + res.rows.map(function (r) {
           return '<button class="hit" data-go="' + r.entry.route + '?q=' + encodeURIComponent(val) + '">'
-            + '<div class="where">' + esc(r.entry.title) + ' &middot; ' + esc(r.entry.sub) + '</div>'
+            + '<div class="where">' + esc(r.entry.title) + ' &middot; ' + esc(r.entry.sub)
+            + (r.more ? '<span class="more">+' + r.more + ' more section'
+                        + (r.more > 1 ? 's' : '') + '</span>' : '')
+            + '</div>'
             + r.snips.map(function (s) { return '<div class="snip">' + s + '</div>'; }).join('')
             + '</button>';
         }).join('');
@@ -968,10 +1889,19 @@
     });
   }
 
+  var reviseFilter = 'all';
+
+  function reviseDecks() {
+    return C.decks.filter(function (d) {
+      return reviseFilter === 'all' || (d.track || 'LLD') === reviseFilter;
+    });
+  }
+
   function viewRevise() {
     setNav('revise');
+    var pool = reviseDecks();
     var totalDue = 0, totalNew = 0, learned = 0, total = 0;
-    C.decks.forEach(function (d) {
+    pool.forEach(function (d) {
       d.cards.forEach(function (c) {
         var s = cardState(c.id);
         total++;
@@ -993,9 +1923,25 @@
     if (totalDue + totalNew) {
       h += '<div style="margin-top:12px"><button class="btn primary" style="width:100%" data-go="#/revise/all">Start mixed session</button></div>';
     }
-    h += '</div><h2 class="eyebrow">Decks</h2><div class="deckwrap">';
+    h += '</div>';
 
-    C.decks.forEach(function (d) {
+    h += '<div class="chips" role="tablist" aria-label="Filter decks">'
+      + ['all', 'AI', 'LLD', 'HLD'].map(function (t) {
+          var ds = C.decks.filter(function (d) {
+            return t === 'all' || (d.track || 'LLD') === t;
+          });
+          var nn = ds.reduce(function (a, d) { return a + d.cards.length; }, 0);
+          var on = t === reviseFilter;
+          return '<button class="chip' + (on ? ' on' : '') + '" role="tab"'
+            + ' aria-selected="' + (on ? 'true' : 'false') + '"'
+            + ' data-rfilter="' + t + '">' + (t === 'all' ? 'All' : t)
+            + '<span class="chip-n">' + nn + '</span></button>';
+        }).join('')
+      + '</div>';
+
+    h += '<h2 class="eyebrow">Decks</h2><div class="deckwrap">';
+
+    pool.forEach(function (d) {
       var due = dueCards(d).length;
       var known = d.cards.filter(function (c) { return cardState(c.id).box >= 3; }).length;
       h += '<button class="card" data-go="#/revise/' + d.id + '"><div class="deck">'
@@ -1005,8 +1951,10 @@
         + (due ? '<span class="pill due">' + due + ' due</span>' : '<span class="pill done">rested</span>')
         + '</div></button>';
     });
+    if (!pool.length) h += '<p class="empty">Nothing in this filter.</p>';
     h += '</div></div>';
-    render(h, 'Revise', 'Spaced repetition over your notes', true);
+    render(h, 'Revise', C.decks.reduce(function (a, d) { return a + d.cards.length; }, 0)
+           + ' cards over your notes', true);
   }
 
   var session = null;
@@ -1014,7 +1962,9 @@
   function viewSession(deckId) {
     var pool = [];
     if (deckId === 'all') {
-      C.decks.forEach(function (d) {
+      /* honour the Revise filter - a mixed session started from the AI view
+         that deals LLD cards is not what anyone asked for */
+      reviseDecks().forEach(function (d) {
         dueCards(d).forEach(function (c) { pool.push({ card: c, deck: d }); });
       });
     } else {
@@ -1070,8 +2020,7 @@
       due: Date.now() + BOX_DAYS[box] * 86400000,
       n: (s.n || 0) + 1
     };
-    var d = today();
-    state.log[d] = (state.log[d] || 0) + 1;
+    bump();
     if (kind === 'good') session.done++; else { session.again++; session.queue.push(it); }
     session.i++;
     save();
@@ -1109,6 +2058,13 @@
       + sizes.map(function (t, i) {
         return '<button data-val="' + i + '" class="' + (s.size === i ? 'on' : '') + '">' + t + '</button>';
       }).join('') + '</div></div>'
+      + '<div class="setrow"><div class="lab">Daily goal<small>Sections or cards that count as a day</small></div>'
+      + '<div class="seg" data-seg="goal">'
+      + GOALS.map(function (g) {
+        return '<button data-val="' + g + '" class="' + (goalN() === g ? 'on' : '') + '">' + g + '</button>';
+      }).join('') + '</div></div>'
+      + '<div class="setrow"><div class="lab">Interview date<small>Get a days-left countdown and the pace to finish</small></div>'
+      + '<input type="date" id="interviewDate" class="dateinput" value="' + esc(s.interviewDate || '') + '"></div>'
       + '<div class="setrow"><div class="lab">Keep screen on<small>While the app is open</small></div>'
       + '<div class="seg" data-seg="wake">'
       + '<button data-val="0" class="' + (!s.wake ? 'on' : '') + '">off</button>'
@@ -1119,65 +2075,189 @@
           : 'NOT being saved - this browser is blocking storage')
       + '</small></div>'
       + '<button class="btn danger" data-reset>Reset</button></div>'
-      + '<div class="setrow"><div class="lab">Progress recovery<small>Download or upload progress JSON</small></div>'
-      + '<div style="display:flex;gap:8px">'
-      + '<button class="btn" data-download-backup>Download JSON</button>'
-      + '<label class="btn primary" style="cursor:pointer;margin:0">Upload JSON<input type="file" id="upload-backup-file" accept=".json" style="display:none"></label>'
-      + '</div></div>'
+      + '<div class="setrow"><div class="lab">Backup<small>Copy your progress out, or restore it</small></div>'
+      + '<button class="btn" data-backup>Backup</button></div>'
+      + '<div class="setrow"><div class="lab">The book<small>LLM fundamentals through production agents, 35 chapters</small></div>'
+      + '<a class="btn" href="book.html" target="_blank" rel="noopener">Read</a></div>'
+      + '<div class="setrow"><div class="lab">Keyboard<small>Shortcuts for reading on a laptop</small></div>'
+      + '<button class="btn" data-keys>Shortcuts</button></div>'
+      + '<div class="setrow"><div class="lab">App cache<small>Refetch the app files if a change did not show up. '
+      + 'Your progress is not touched.</small></div>'
+      + '<button class="btn" data-refresh>Force refresh</button></div>'
       + (installPrompt ? '<div class="setrow"><div class="lab">Install<small>Add to home screen</small></div>'
         + '<button class="btn primary" data-install>Install app</button></div>' : '')
       + '<div class="setrow"><div class="lab" style="color:var(--dim);font-size:.78rem">'
       + 'Content built ' + esc(C.built || '') + ' &middot; v' + esc(C.version || '') + '<br>'
       + C.problems.length + ' problems, ' + C.refs.length + ' references, '
       + C.decks.reduce(function (n, d) { return n + d.cards.length; }, 0) + ' cards</div></div>';
-    sheet(h);
+    var el = sheet(h);
+    var di = el.querySelector('#interviewDate');
+    if (di) di.addEventListener('change', function () {
+      state.settings.interviewDate = di.value || '';
+      save();
+    });
   }
 
   // --------------------------------------------------------------- backup
 
-  function downloadBackup() {
-    var json = JSON.stringify(state, null, 2);
-    var blob = new Blob([json], { type: 'application/json' });
-    var url = URL.createObjectURL(blob);
-    var a = document.createElement('a');
-    a.href = url;
-    a.download = 'lld-hld-progress.json';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    toast('Download started');
+  /* Progress lives in this device's local storage. That survives closing the app and
+     restarting the phone, but not clearing browser data or uninstalling - so there is
+     a way to carry it out as text. A textarea rather than a file download, because a
+     WebView inside an APK cannot start a download. */
+  /* The worker is cache-first and matches with ignoreSearch, so a query-string
+     bust does nothing while it is in charge. Combined with skipWaiting there is
+     a window where a live page holds a new app.js against an old styles.css,
+     which looks exactly like the CSS broke. This is the way out of that without
+     opening devtools. Caches only - localStorage, and so your progress, stays. */
+  function forceRefresh() {
+    var jobs = [];
+    if (window.caches && caches.keys) {
+      jobs.push(caches.keys().then(function (ks) {
+        return Promise.all(ks.map(function (k) { return caches.delete(k); }));
+      }));
+    }
+    if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+      jobs.push(navigator.serviceWorker.getRegistrations().then(function (rs) {
+        return Promise.all(rs.map(function (r) { return r.unregister(); }));
+      }));
+    }
+    writeNow();                      // flush progress before the page goes away
+    toast('Clearing app cache');
+    Promise.all(jobs).catch(function () { }).then(function () {
+      setTimeout(function () { location.reload(); }, 250);
+    });
   }
 
-  function uploadBackup(file) {
-    if (!file) return;
-    var reader = new FileReader();
-    reader.onload = function(e) {
-      var data;
-      try {
-        data = JSON.parse(e.target.result);
-      } catch (err) {
-        toast('That is not a valid JSON file');
-        return;
-      }
-      if (!data || typeof data !== 'object' || (!data.docs && !data.cards)) {
-        toast('That backup does not look right');
-        return;
-      }
-      state.docs = data.docs || {};
-      state.cards = data.cards || {};
-      state.star = data.star || {};
-      state.log = data.log || {};
-      state.last = data.last || null;
-      if (data.settings) state.settings = Object.assign(state.settings, data.settings);
-      writeNow();
-      closeSheet();
-      applyTheme();
-      applySize();
-      route();
-      toast('Progress restored');
-    };
-    reader.readAsText(file);
+  /* Every key that carries progress. Listing them rather than assigning the
+     whole parsed object keeps a malformed file from introducing fields the app
+     never expects - and, more usefully, makes it obvious when a new bit of
+     state is added and not backed up. mock and diag were already being dropped
+     silently on restore before this list existed. */
+  var BACKUP_KEYS = ['settings', 'docs', 'star', 'cards',
+                     'open', 'diag', 'mock', 'streak', 'last', 'lastPath'];
+
+  function summarise(st) {
+    var done = 0, runs = 0, k;
+    for (k in (st.docs || {})) if (st.docs[k] && st.docs[k].done) done++;
+    for (k in (st.mock || {})) runs += (st.mock[k] && st.mock[k].runs) || 0;
+    return { done: done, cards: Object.keys(st.cards || {}).length, runs: runs };
+  }
+
+  function plural(n, word) { return n + ' ' + word + (n === 1 ? '' : 's'); }
+
+  function tally(c) {
+    return plural(c.done, 'section') + ', ' + plural(c.cards, 'card')
+      + (c.runs ? ', ' + plural(c.runs, 'mock run') : '');
+  }
+
+  function backupName() { return 'interview-prep-' + today() + '.json'; }
+
+  /* Progress lives in this device's local storage. That survives closing the app
+     and restarting the phone, but not clearing browser data or uninstalling. A
+     file is the obvious way out; the textarea stays because a WebView inside an
+     APK cannot always start a download, and losing the only escape hatch on the
+     platform most likely to need it would be a poor trade. */
+  function openBackup() {
+    var c = summarise(state);
+    sheet('<h4>Backup and restore</h4>'
+      + '<div class="bknote">' + tally(c) + ' on this device.</div>'
+      + '<div class="flashbar">'
+      + '<button class="btn primary" data-bkexport>Download .json</button>'
+      + '<button class="btn" data-bkimport>Import file</button>'
+      + '</div>'
+      + '<details class="bkpaste"><summary>Or copy and paste the text</summary>'
+      + '<div class="bknote">Use this if the download is blocked - some in-app '
+      + 'browsers do not allow one.</div>'
+      + '<textarea class="backup" id="bk" spellcheck="false" autocapitalize="off">'
+      + esc(JSON.stringify(state)) + '</textarea>'
+      + '<div class="flashbar">'
+      + '<button class="btn" data-bkcopy>Copy</button>'
+      + '<button class="btn" data-bkrestore>Restore from text</button>'
+      + '</div></details>');
+  }
+
+  function exportFile() {
+    try {
+      var blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = backupName();
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(function () { URL.revokeObjectURL(url); a.remove(); }, 1000);
+      toast('Saved ' + backupName());
+    } catch (e) {
+      toast('Download blocked here - use Copy instead');
+    }
+  }
+
+  function importFile() {
+    var input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'application/json,.json';
+    input.style.display = 'none';
+    document.body.appendChild(input);
+    input.addEventListener('change', function () {
+      var f = input.files && input.files[0];
+      input.remove();
+      if (!f) return;
+      var r = new FileReader();
+      r.onload = function () { confirmRestore(String(r.result), f.name); };
+      r.onerror = function () { toast('Could not read that file'); };
+      r.readAsText(f);
+    });
+    input.click();
+  }
+
+  function parseBackup(text) {
+    var data;
+    try { data = JSON.parse(text); } catch (e) { return null; }
+    if (!data || typeof data !== 'object' || (!data.docs && !data.cards)) return null;
+    return data;
+  }
+
+  /* Restoring replaces everything and cannot be undone, so it takes two taps
+     and shows you both sides of the trade first. */
+  var pending = null;
+
+  function confirmRestore(text, label) {
+    var data = parseBackup(text);
+    if (!data) { toast('That does not look like a backup'); return; }
+    pending = data;
+    var mine = summarise(state), theirs = summarise(data);
+    sheet('<h4>Replace your progress?</h4>'
+      + '<div class="bkdiff">'
+      + '<div><span>on this device</span><b>' + tally(mine) + '</b></div>'
+      + '<div><span>in ' + esc(label || 'the backup') + '</span><b>' + tally(theirs) + '</b></div>'
+      + '</div>'
+      + '<div class="bknote">This replaces what is on the device. It cannot be undone.</div>'
+      + '<div class="flashbar">'
+      + '<button class="btn" data-bkcancel>Cancel</button>'
+      + '<button class="btn danger" data-bkconfirm>Replace</button>'
+      + '</div>');
+  }
+
+  function applyBackup(data) {
+    BACKUP_KEYS.forEach(function (k) {
+      if (!(k in data)) return;
+      if (k === 'settings') { state.settings = Object.assign(state.settings, data.settings || {}); }
+      else if (k === 'last') { state.last = data.last || null; }
+      else if (k === 'lastPath') { state.lastPath = data.lastPath || null; }
+      else { state[k] = data[k] || {}; }
+    });
+    writeNow();
+    closeSheet();
+    applyTheme();
+    applySize();
+    applyWake();
+    route();
+    toast('Restored ' + tally(summarise(state)));
+  }
+
+  function restoreFromText() {
+    var box = document.getElementById('bk');
+    confirmRestore(box ? box.value : '', 'the pasted text');
   }
 
   // ---------------------------------------------------------------- sheet
@@ -1207,7 +2287,8 @@
 
   function render(html, title, sub, showNav, opts) {
     opts = opts || {};
-    $$('.readerbar, .progressline').forEach(function (e) { e.remove(); });
+    $$('.readerbar, .progressline, .crumb').forEach(function (e) { e.remove(); });
+    document.body.classList.remove('reading');
     closeSheet();
     scrollSaver = null;
     currentDoc = null;
@@ -1245,8 +2326,34 @@
   }
 
   function mockStat(id) {
-    if (!state.mock[id]) state.mock[id] = { best: 0, runs: 0, last: 0, missed: [] };
+    if (!state.mock[id]) {
+      state.mock[id] = { best: 0, runs: 0, last: 0, missed: [], lastPct: 0, prev: 0 };
+    }
     return state.mock[id];
+  }
+
+  function mockMins(m) {
+    var t = String(m.time || '').match(/(\d+)/);
+    return t ? +t[1] : 0;
+  }
+
+  /* Not attempted / below target / solid. Readiness is what you want to see
+     when choosing a round; track is a filter on top of it. */
+  var MOCK_TARGET = 0.70;
+
+  function readiness(m) {
+    var st = mockStat(m.id);
+    if (!st.runs) return 'todo';
+    return st.best >= MOCK_TARGET ? 'solid' : 'weak';
+  }
+
+  function ago(ts) {
+    if (!ts) return '';
+    var d = Math.floor((Date.now() - ts) / 86400000);
+    if (d <= 0) return 'today';
+    if (d === 1) return 'yesterday';
+    if (d < 30) return d + ' days ago';
+    return Math.floor(d / 30) + ' mo ago';
   }
 
   function mmss(ms) {
@@ -1273,6 +2380,13 @@
 
   // ------------------------------------------------------------ mock list
 
+  var mockFilter = 'all';
+
+  function medianMins() {
+    var xs = C.mocks.map(mockMins).filter(Boolean).sort(function (a, b) { return a - b; });
+    return xs.length ? xs[Math.floor(xs.length / 2)] : 0;
+  }
+
   function viewMock() {
     setNav('mock');
     clearInterval(tick);
@@ -1291,41 +2405,72 @@
       + '<div class="stat"><b>' + Math.round(avg * 100) + '%</b><span>avg best</span></div>'
       + '<div class="stat"><b>' + C.mocks.reduce(function (n, m) { return n + m.checkpoints; }, 0)
       + '</b><span>checkpoints</span></div>'
-      + '<div class="stat"><b>45</b><span>min each</span></div>'
+      + '<div class="stat"><b>' + medianMins() + '</b><span>min, typical</span></div>'
       + '</div></div>';
 
-    var basics = ref('HLD-BASICS');
-    if (basics) {
-      h += '<button class="card" data-go="#/r/HLD-BASICS"><div class="card-row">'
-        + '<div class="num" style="font-size:1rem">&#9776;</div>'
-        + '<div class="body"><h3>New to HLD? Read this first</h3>'
-        + '<div class="meta">The 6 building blocks, the numbers, the 9 steps</div>'
+    /* Track as a filter, readiness as the grouping - which round to attempt
+       next is a readiness question, and the old grouping could not answer it. */
+    var pool = C.mocks.filter(function (m) {
+      return mockFilter === 'all' || m.track === mockFilter;
+    });
+
+    h += '<div class="chips" role="tablist" aria-label="Filter rounds">'
+      + ['all', 'AI', 'LLD', 'HLD'].map(function (t) {
+          var nn = t === 'all' ? C.mocks.length
+            : C.mocks.filter(function (m) { return m.track === t; }).length;
+          var on = t === mockFilter;
+          return '<button class="chip' + (on ? ' on' : '') + '" role="tab"'
+            + ' aria-selected="' + (on ? 'true' : 'false') + '"'
+            + ' data-mfilter="' + t + '">' + (t === 'all' ? 'All' : t)
+            + '<span class="chip-n">' + nn + '</span></button>';
+        }).join('')
+      + '</div>';
+
+    var nxt = pool.filter(function (m) { return !mockStat(m.id).runs; })[0]
+      || pool.slice().sort(function (a, b) {
+           return mockStat(a.id).best - mockStat(b.id).best;
+         })[0];
+    if (nxt) {
+      var why = mockStat(nxt.id).runs ? 'your weakest round so far' : 'next unattempted';
+      h += '<h2 class="eyebrow">Start here</h2>'
+        + '<button class="card nextup" data-go="#/mock/' + nxt.id + '"><div class="card-row">'
+        + '<div class="num play">&#9654;</div>'
+        + '<div class="body"><h3>' + esc(nxt.title) + '</h3>'
+        + '<div class="meta">' + esc(nxt.time || '') + ' &middot; ' + why + '</div>'
         + '</div></div></button>';
     }
 
-    ['LLD', 'HLD'].forEach(function (track) {
-      var list = C.mocks.filter(function (m) { return m.track === track; });
+    var BUCKETS = [['todo', 'Not attempted'], ['weak', 'Attempted, below target'],
+                   ['solid', 'Solid']];
+    BUCKETS.forEach(function (b) {
+      var list = pool.filter(function (m) { return readiness(m) === b[0]; });
       if (!list.length) return;
-      var att = list.filter(function (m) { return mockStat(m.id).runs; }).length;
-      h += '<h2 class="eyebrow">' + track + ' &middot; ' + list.length + ' rounds'
-        + (att ? ' &middot; ' + att + ' attempted' : '') + '</h2>';
-      list.forEach(function (m) { h += mockCard(m); });
+      h += sect('mock.' + b[0], b[1], list.length, list.map(mockCard).join(''));
     });
+    if (!pool.length) h += '<p class="empty">Nothing in this filter.</p>';
     h += '</div>';
-    render(h, 'Mock', C.mocks.length + ' rounds', true);
+    render(h, 'Mock', C.mocks.length + ' rounds', true, { actions: collapseAllBtn() });
   }
 
   function mockCard(m) {
     var st = mockStat(m.id);
     var badge = st.runs
       ? Math.round(st.best * 100) + '<span style="font-size:.55em">%</span>'
-      : (m.track === 'LLD' ? m.id.slice(0, 2) : m.id.slice(4, 6));
+      : ((String(m.id).match(/(\d+)/) || ['', '?'])[1]);
+    var trend = '';
+    if (st.runs > 1 && st.lastPct && st.prev) {
+      var d = Math.round((st.lastPct - st.prev) * 100);
+      trend = ' &middot; <span class="' + (d >= 0 ? 'up' : 'down') + '">'
+        + (d >= 0 ? '&#9650;' : '&#9660;') + Math.abs(d) + '</span>';
+    }
     return '<button class="card" data-go="#/mock/' + m.id + '"><div class="card-row">'
-      + '<div class="num' + (st.best >= 0.7 ? ' done' : '') + '">' + badge + '</div>'
+      + '<div class="num' + (st.best >= MOCK_TARGET ? ' done' : '') + '">' + badge + '</div>'
       + '<div class="body"><h3>' + esc(m.title) + '</h3>'
-      + '<div class="meta">' + esc(m.difficulty || m.time) + ' &middot; '
-      + m.steps.length + ' steps &middot; ' + m.checkpoints + ' checkpoints'
-      + (st.runs ? ' &middot; ' + st.runs + (st.runs > 1 ? ' runs' : ' run') : '') + '</div>'
+      + '<div class="meta">' + esc(m.time || m.difficulty) + ' &middot; '
+      + m.checkpoints + ' checkpoints'
+      + (st.runs ? ' &middot; ' + st.runs + (st.runs > 1 ? ' runs' : ' run')
+                   + ', ' + ago(st.last) : '')
+      + trend + '</div>'
       + (m.tags.length ? '<div class="tags">' + m.tags.slice(0, 3).map(function (t) {
         return '<span class="tag accent">' + esc(t) + '</span>';
       }).join('') + '</div>' : '')
@@ -1363,7 +2508,8 @@
     h += '<button class="mck-go" data-mstart>Start the clock</button>';
     h += '<button class="mck-alt" data-go="' + docRoute(m) + '">Just read it instead</button>';
     h += '</div>';
-    render(h, esc(m.title), '', false, { back: true, backTo: '#/mock' });
+    render(h, esc(m.title), '', false, { back: true, backTo: '#/mock',
+      actions: '<button class="iconbtn" data-go="#/" aria-label="Home">' + icon('home') + '</button>' });
   }
 
   function runClarify(m) {
@@ -1381,7 +2527,8 @@
     });
     h += '<button class="mck-go" data-mnext>Scope is set &rarr; start designing</button>';
     h += '</div>';
-    render(h, esc(m.title), 'Clarify', false, { back: true, backTo: '#/mock' });
+    render(h, esc(m.title), 'Clarify', false, { back: true, backTo: '#/mock',
+      actions: '<button class="iconbtn" data-go="#/" aria-label="Home">' + icon('home') + '</button>' });
     startClock();
   }
 
@@ -1437,9 +2584,11 @@
     if (!run.saved) {                       // only bank the first time we land here
       st.runs += 1;
       st.last = Date.now();
+      st.prev = st.lastPct;                 // keep the previous score, for a trend
+      st.lastPct = pct;                     // best alone cannot show improvement
       st.best = Math.max(st.best, pct);
       st.missed = missed.slice(0, 40).map(function (x) { return x.what; });
-      state.log[today()] = (state.log[today()] || 0) + 1;
+      bump();                               // a finished round is a unit of work
       run.saved = true;
       writeNow();
     }
@@ -1542,12 +2691,18 @@
     var parts = raw.split('/').filter(Boolean);
 
     if (!parts.length) return viewHome();
-    if (parts[0] === 't') return viewTrack(parts[1] === 'hld' ? 'hld' : 'lld');
+    if (parts[0] === 't') {
+      /* three tracks now - anything unrecognised falls back to LLD */
+      var tr = (parts[1] === 'hld' || parts[1] === 'ai') ? parts[1] : 'lld';
+      return viewTrack(tr);
+    }
     switch (parts[0]) {
       case 'p':
         return viewDoc('p', parts[1], parts[2] || 'problem', query);
       case 'r':
         return viewDoc('r', parts[1], '', query);
+      case 'path':
+        return viewPath(parts[1]);
       case 'concepts':
         return viewConcepts();
       case 'revise':
@@ -1563,17 +2718,32 @@
 
   // ------------------------------------------------------------- events
 
-  document.addEventListener('change', function (e) {
-    var t = e.target;
-    if (t.id === 'upload-backup-file') {
-      uploadBackup(t.files[0]);
+  /* 'toggle' does not bubble, so this has to capture. */
+  document.addEventListener('toggle', function (e) {
+    var d = e.target;
+    if (d && d.tagName === 'DETAILS' && d.dataset && d.dataset.sect) {
+      setSect(d.dataset.sect, d.open);
     }
-  });
+  }, true);
 
   document.addEventListener('click', function (e) {
     var t = e.target;
 
     if (mockClick(t)) return;
+
+    var cf = t.closest('[data-cfilter]');
+    if (cf) { conceptFilter = cf.dataset.cfilter; viewConcepts(); return; }
+
+    var coll = t.closest('[data-collapse]');
+    if (coll) {
+      var ds = $$('details.sect');
+      var anyOpen = ds.some(function (d) { return d.open; });
+      ds.forEach(function (d) {
+        d.open = !anyOpen;
+        if (d.dataset.sect) setSect(d.dataset.sect, !anyOpen);
+      });
+      return;
+    }
 
     var go_ = t.closest('[data-go]');
     if (go_) { go(go_.dataset.go); return; }
@@ -1583,7 +2753,8 @@
 
     var nav = t.closest('[data-nav]');
     if (nav) {
-      var map = { home: '#/', concepts: '#/concepts', mock: '#/mock', revise: '#/revise', search: '#/search' };
+      var map = { home: '#/', path: '#/path', concepts: '#/concepts',
+                  mock: '#/mock', revise: '#/revise', search: '#/search' };
       go(map[nav.dataset.nav]);
       return;
     }
@@ -1619,12 +2790,9 @@
       return;
     }
 
-    if (t.closest('[data-toc]') && currentDoc) {
-      sheet('<h4>Sections</h4><div class="toc">' + currentDoc.toc.map(function (x) {
-        return '<a href="#' + x.id + '" data-tocjump="' + x.id + '" class="h' + x.lvl + '">' + esc(x.text) + '</a>';
-      }).join('') + '</div>');
-      return;
-    }
+    if (t.closest('[data-toc]') && currentDoc) { openToc(); return; }
+
+    if (t.closest('[data-keys]')) { shortcutSheet(); return; }
 
     var jump = t.closest('[data-tocjump]');
     if (jump) {
@@ -1692,11 +2860,28 @@
       if (kind === 'theme') { state.settings.theme = val; applyTheme(); }
       if (kind === 'size') { state.settings.size = +val; applySize(); }
       if (kind === 'wake') { state.settings.wake = val === '1'; applyWake(); }
+      if (kind === 'goal') { state.settings.goal = +val; }
       save();
       return;
     }
 
-    if (t.closest('[data-download-backup]')) { downloadBackup(); return; }
+    var mf = t.closest('[data-mfilter]');
+    if (mf) { mockFilter = mf.dataset.mfilter; viewMock(); return; }
+
+    var rf = t.closest('[data-rfilter]');
+    if (rf) { reviseFilter = rf.dataset.rfilter; viewRevise(); return; }
+
+    if (t.closest('[data-backup]')) { openBackup(); return; }
+
+    if (t.closest('[data-bkexport]')) { exportFile(); return; }
+    if (t.closest('[data-bkimport]')) { importFile(); return; }
+    if (t.closest('[data-bkcancel]')) { pending = null; openBackup(); return; }
+    if (t.closest('[data-bkconfirm]')) {
+      if (pending) { applyBackup(pending); pending = null; }
+      return;
+    }
+
+    if (t.closest('[data-refresh]')) { forceRefresh(); return; }
 
     if (t.closest('[data-bkcopy]')) {
       var box = document.getElementById('bk');
@@ -1709,7 +2894,7 @@
       return;
     }
 
-    if (t.closest('[data-bkrestore]')) { restoreBackup(); return; }
+    if (t.closest('[data-bkrestore]')) { restoreFromText(); return; }
 
     if (t.closest('[data-reset]')) {
       if (confirm('Clear all progress, stars and card scheduling on this device?')) {
@@ -1734,6 +2919,12 @@
     if (scrollSaver) scrollSaver();
   }, { passive: true });
 
+  /* the bars change height when a phone rotates, so the crumb re-measures */
+  window.addEventListener('resize', function () {
+    var c = $('.crumb'), a = $('.tabs') || $('.appbar');
+    if (c && a) c.style.top = Math.round(a.getBoundingClientRect().bottom) + 'px';
+  });
+
   window.addEventListener('hashchange', function () { closeFull(); route(); });
 
   // swipe between the doc tabs of a problem
@@ -1757,20 +2948,43 @@
   }, { passive: true });
 
   document.addEventListener('keydown', function (e) {
-    if (e.target.tagName === 'INPUT' || e.metaKey || e.ctrlKey) return;
+    var tag = e.target.tagName;
+    /* TEXTAREA matters: the backup sheet is one, and '/' used to yank you
+       out of it into search mid-paste. */
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target.isContentEditable) return;
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+    if (e.key === 'Escape') { closeFull(); closeSheet(); return; }
+    if (e.key === '?') { e.preventDefault(); shortcutSheet(); return; }
     if (e.key === '/') { e.preventDefault(); go('#/search'); return; }
+
     if (session && $('#fbar')) {
       if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); if ($('[data-show]')) showAnswer(); return; }
       if (e.key === '1' && $('[data-grade]')) { grade('again'); return; }
       if (e.key === '2' && $('[data-grade]')) { grade('good'); return; }
     }
-    if (currentDoc && currentDoc.kind === 'p') {
-      var p = currentDoc.item;
-      var i = p.docs.findIndex(function (d) { return d.key === currentDoc.sub; });
-      if (e.key === 'ArrowRight' && i < p.docs.length - 1) go('#/p/' + p.id + '/' + p.docs[i + 1].key);
-      if (e.key === 'ArrowLeft' && i > 0) go('#/p/' + p.id + '/' + p.docs[i - 1].key);
+    if (!currentDoc) return;
+
+    if (e.key === 'j' || e.key === 'k') {
+      e.preventDefault();
+      window.scrollBy({ top: (e.key === 'j' ? 1 : -1) * Math.round(window.innerHeight * 0.85),
+                        behavior: 'smooth' });
+      return;
     }
-    if (e.key === 'Escape') { closeFull(); closeSheet(); }
+    if (e.key === 'm') { markDone(!doc(currentDoc.key).done); return; }
+    if (e.key === 't') { openToc(); return; }
+    if (currentDoc.kind !== 'p') return;
+
+    /* n/p and the arrows walk sections and then roll on into the next
+       problem; ] and [ skip a whole problem at a time. */
+    var nb = neighbours(currentDoc.item, currentDoc.sub);
+    if ((e.key === 'n' || e.key === 'ArrowRight') && nb.next) { go(nb.next.route); return; }
+    if ((e.key === 'p' || e.key === 'ArrowLeft') && nb.prev) { go(nb.prev.route); return; }
+    if (e.key === ']' || e.key === '[') {
+      var sib = siblings(currentDoc.item), si = sib.indexOf(currentDoc.item);
+      var hop = sib[si + (e.key === ']' ? 1 : -1)];
+      if (hop) go('#/p/' + hop.id + '/' + hop.docs[0].key);
+    }
   });
 
   // ------------------------------------------------------- theme / setup

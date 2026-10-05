@@ -15,6 +15,9 @@ local.properties
 .DS_Store
 Thumbs.db
 
+# zip archives
+*.zip
+
 # not part of the shipped app - kept local only
 /_superseded-pwa/
 /_wip-drafts/

@@ -1,7 +1,7 @@
 /* Offline cache. CACHE is stamped with the content hash by mobile/build.py,
    so a rebuild invalidates the old bundle automatically. */
 
-const CACHE = 'lld-93394721ed';
+const CACHE = 'aiprep-7bb5a6c914';
 
 const ASSETS = [
   './',
@@ -9,6 +9,7 @@ const ASSETS = [
   'styles.css',
   'app.js',
   'content.js',
+  'book.html',
   'diagram/core.js',
   'diagram/class.js',
   'diagram/flow.js',

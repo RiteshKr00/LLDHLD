@@ -1,7 +1,7 @@
 {
-  "name": "LLD Interview Prep",
-  "short_name": "LLD Prep",
-  "description": "Low-Level Design interview prep - problems, solutions, HLD companions and spaced-repetition revision. Works offline.",
+  "name": "AI Interview Prep",
+  "short_name": "AI Prep",
+  "description": "AI-engineer interview prep - defence dossiers, 32 design scenarios, 21 reference architectures and runnable mock rounds. Works offline.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

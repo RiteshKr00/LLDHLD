@@ -624,7 +624,7 @@ textarea.backup {
   bottom: 0;
   z-index: 50;
   display: grid;
-  grid-template-columns: repeat(5, 1fr);   /* Home Concepts Mock Revise Search */
+  grid-template-columns: repeat(6, 1fr);   /* Home Path Concepts Mock Revise Search */
   background: var(--bg);
   background: color-mix(in srgb, var(--bg) 92%, transparent);
   backdrop-filter: saturate(150%) blur(14px);
@@ -852,3 +852,388 @@ textarea.backup {
 .track p { margin: 5px 0 12px; font-size: .89rem; color: var(--dim); line-height: 1.5; }
 .track .bar { margin: 0 0 9px; }
 .track-meta { font-size: .8rem; color: var(--faint); }
+
+/* ---------------------------------------------------------------- sections
+   Long list views are grouped into native <details> so a group can be folded
+   away. The summary reuses the .eyebrow type scale so nothing looks bolted on. */
+.sect { border-top: 1px solid var(--line); margin: 0 2px; }
+.sect:first-of-type { border-top: 0; }
+.sect > summary {
+  display: flex; align-items: center; gap: 10px;
+  padding: 16px 2px 10px;
+  font-size: .70rem; letter-spacing: .10em; text-transform: uppercase;
+  color: var(--faint); font-weight: 700;
+  cursor: pointer; list-style: none; user-select: none;
+}
+.sect > summary::-webkit-details-marker { display: none; }
+.sect > summary::after {
+  content: ''; margin-left: auto; flex: none;
+  width: 8px; height: 8px;
+  border-right: 2px solid currentColor; border-bottom: 2px solid currentColor;
+  transform: rotate(45deg) translateY(-2px);
+  transition: transform .18s ease;
+}
+.sect[open] > summary::after { transform: rotate(225deg) translateY(-2px); }
+.sect > summary:hover { color: var(--text); }
+.sect > summary:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px;
+}
+.sect-n {
+  font-size: .68rem; letter-spacing: .04em; text-transform: none;
+  font-weight: 600; color: var(--dim);
+  padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px;
+}
+.sect-body { padding-bottom: 6px; }
+
+/* ------------------------------------------------------------- track chips
+   Switching track used to require going back to Home. */
+.chips { display: flex; gap: 8px; margin: 4px 2px 6px; }
+.chip {
+  flex: 1; padding: 9px 10px;
+  background: var(--surface); color: var(--dim);
+  border: 1px solid var(--line); border-radius: var(--radius);
+  font: inherit; font-size: .82rem; font-weight: 700; letter-spacing: .04em;
+  cursor: pointer;
+}
+.chip:hover { color: var(--text); }
+.chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ------------------------------------------------------- wide-screen columns
+   The column widens to 1500px at 720px, but the cards stayed full-width, so a
+   51-item list was one very tall ribbon. Card lists become a responsive grid;
+   prose is left alone, because long line lengths hurt reading. */
+@media (min-width: 720px) {
+  .sect-body {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+    gap: 10px;
+    align-items: start;
+  }
+  /* the grid owns the spacing now */
+  .sect-body > .card { margin-bottom: 0; }
+}
+
+/* chips can exceed one row once there are several filters */
+.chips-wrap { flex-wrap: wrap; }
+.chips-wrap .chip { flex: 0 1 auto; min-width: 92px; }
+.chip-n {
+  display: inline-block; margin-left: 7px;
+  font-size: .68rem; font-weight: 700; letter-spacing: 0;
+  opacity: .72;
+}
+.empty { color: var(--faint); padding: 22px 4px; text-align: center; }
+
+/* ------------------------------------------------------- reading measure
+   --colw opens to 1500px on a laptop. That is right for a grid of cards and
+   wrong for prose: about 200 characters a line, and the eye loses the return
+   sweep. In the reader the column narrows and the paragraphs narrow again
+   inside it, while the things that genuinely want room - diagrams, code,
+   tables - keep the full width. */
+@media (min-width: 720px) {
+  body.reading { --colw: min(92vw, 1120px); }
+  body.reading .prose > * { max-width: 74ch; }
+  body.reading .prose > .diagram,
+  body.reading .prose > pre,
+  body.reading .prose > .tablewrap { max-width: none; }
+}
+
+/* ------------------------------------------------------------- section crumb
+   'Explained' runs past 3,000 words, so the heading you are reading under is
+   long gone off the top. Hidden until you scroll past the first one; tap it
+   for the full contents. */
+.crumb {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: calc(var(--safe-t) + 58px);      /* JS refines this against the real bars */
+  z-index: 29;                          /* below .tabs, so an overlap resolves sanely */
+  display: none;
+  width: 100%;
+  padding: 5px 14px 6px;
+  font: inherit;
+  font-size: .72rem;
+  font-weight: 640;
+  text-align: left;
+  color: var(--dim);
+  background: var(--bg);
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  backdrop-filter: blur(10px);
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.crumb.on { display: block; }
+.crumb:hover { color: var(--text); }
+.crumb:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+@media (min-width: 720px) {
+  /* line the crumb up with the appbar above it */
+  .crumb {
+    padding-left: calc((100% - var(--colw)) / 2 + 20px);
+    padding-right: calc((100% - var(--colw)) / 2 + 20px);
+  }
+}
+
+/* ---------------------------------------------------------------- keyboard */
+.keys { display: grid; gap: 0; }
+.keys > div {
+  display: flex; align-items: baseline; gap: 12px;
+  padding: 8px 2px; border-bottom: 1px solid var(--line);
+}
+.keys > div:last-child { border-bottom: 0; }
+.keys kbd {
+  flex: 0 0 74px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: .74rem; font-weight: 700;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: 6px;
+  padding: 3px 0;
+  text-align: center;
+}
+.keys span { font-size: .82rem; color: var(--dim); line-height: 1.4; }
+
+/* ------------------------------------------------------------------ streak
+   A day counts once you clear the daily goal. The number is derived from the
+   day log on every render, never stored, so it cannot drift. */
+.streakbox { padding: 15px 16px 13px; }
+.flamerow { display: flex; align-items: center; gap: 13px; }
+.flame {
+  flex: 0 0 auto; width: 44px; height: 44px; border-radius: 14px;
+  display: grid; place-items: center;
+  background: var(--surface-2); color: var(--faint);
+  border: 1px solid var(--line);
+}
+.flame svg { width: 24px; height: 24px; }
+.flame.lit {
+  color: #ff9d3d;
+  background: color-mix(in srgb, #ff9d3d 16%, var(--surface-2));
+  border-color: color-mix(in srgb, #ff9d3d 38%, var(--line));
+}
+.flametext { flex: 1; min-width: 0; }
+.flametext .big { font-size: 1.5rem; font-weight: 700; letter-spacing: -.02em; line-height: 1.1; }
+.flametext .big .unit { font-size: .82rem; font-weight: 600; color: var(--dim); letter-spacing: 0; }
+.flametext .label { font-size: .74rem; color: var(--dim); font-weight: 600; margin-top: 1px; }
+.best { text-align: right; flex: 0 0 auto; }
+.best b { display: block; font-size: 1.05rem; font-weight: 700; }
+.best span { font-size: .66rem; color: var(--faint); text-transform: uppercase; letter-spacing: .07em; }
+
+.week { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; margin-top: 13px; }
+.wd { display: flex; flex-direction: column-reverse; align-items: center; gap: 5px; }
+.wd span { font-size: .62rem; color: var(--faint); font-weight: 700; }
+.wd i {
+  display: block; width: 100%; height: 22px; border-radius: 7px;
+  background: var(--surface-2); border: 1px solid var(--line);
+}
+.wd.some i { background: color-mix(in srgb, var(--accent) 26%, var(--surface-2)); }
+.wd.met i {
+  background: linear-gradient(160deg, var(--accent), var(--accent-2));
+  border-color: transparent;
+}
+.wd.now span { color: var(--text); }
+.wd.now i { box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent); }
+
+/* --------------------------------------------------------------- next step */
+.card.nextup { border-color: color-mix(in srgb, var(--accent) 42%, var(--line)); }
+.card.nextup .num.play { color: var(--accent); font-size: .9rem; }
+.btn.wide { width: 100%; margin: 2px 0 4px; }
+
+/* ------------------------------------------------------------------- road
+   The stages in order, with a rail down the left so it reads as one route
+   rather than nine unrelated boxes. */
+.road { list-style: none; margin: 0; padding: 0; }
+.stage { position: relative; padding-left: 40px; padding-bottom: 12px; }
+.stage::before {                       /* the rail, drawn between the nodes */
+  content: ''; position: absolute; left: 13px; top: 30px; bottom: -2px;
+  width: 2px; background: var(--line);
+}
+.stage:last-child::before { display: none; }
+.stage.done::before { background: color-mix(in srgb, var(--ok) 55%, var(--line)); }
+.node {
+  position: absolute; left: 0; top: 2px;
+  width: 28px; height: 28px; border-radius: 50%;
+  display: grid; place-items: center;
+  font-size: .76rem; font-weight: 700;
+  background: var(--surface-2); color: var(--faint);
+  border: 1px solid var(--line);
+}
+/* tinted, not filled: a solid --ok reads as unreadable dark-on-dark in one
+   theme or the other, whichever contrast you pick for the glyph */
+.stage.done .node {
+  background: color-mix(in srgb, var(--ok) 18%, var(--surface-2));
+  border-color: color-mix(in srgb, var(--ok) 45%, var(--line));
+  color: var(--ok);
+}
+.stage.now .node {
+  background: var(--accent); border-color: var(--accent); color: #fff;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.scard {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: 14px; padding: 12px 13px;
+}
+.stage.now .scard { border-color: color-mix(in srgb, var(--accent) 38%, var(--line)); }
+.scard > summary { list-style: none; cursor: pointer; }
+.scard > summary::-webkit-details-marker { display: none; }
+.scard > summary h3 { margin: 0; font-size: .95rem; font-weight: 660; letter-spacing: -.01em; }
+.scard > summary .meta { font-size: .74rem; color: var(--dim); margin-top: 3px; }
+.scard > summary .meta b { color: var(--accent); font-weight: 700; }
+.scard > summary .bar { margin-top: 9px; }
+.scard > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 8px; }
+.scard .blurb { font-size: .8rem; color: var(--dim); line-height: 1.5; margin: 11px 0 9px; }
+.stagelist > .card { margin-bottom: 8px; }
+.stagelist > .card:last-child { margin-bottom: 0; }
+
+@media (min-width: 720px) {
+  .stagelist {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+    gap: 10px;
+  }
+  .stagelist > .card { margin-bottom: 0; }
+}
+
+/* ------------------------------------------------------------ backup sheet */
+.bknote { font-size: .8rem; color: var(--dim); line-height: 1.45; margin: 0 2px 11px; }
+.bkpaste { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 12px; }
+.bkpaste > summary {
+  list-style: none; cursor: pointer;
+  font-size: .78rem; font-weight: 640; color: var(--dim);
+  padding: 2px 0 10px;
+}
+.bkpaste > summary::-webkit-details-marker { display: none; }
+.bkpaste > summary::before { content: '+ '; font-weight: 700; }
+.bkpaste[open] > summary::before { content: '– '; }
+.bkpaste > summary:hover { color: var(--text); }
+.bkdiff { display: grid; gap: 8px; margin: 2px 2px 12px; }
+.bkdiff > div {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+  background: var(--surface-2); border: 1px solid var(--line);
+  border-radius: 10px; padding: 9px 11px;
+}
+.bkdiff span { font-size: .72rem; color: var(--faint); text-transform: uppercase; letter-spacing: .05em; }
+.bkdiff b { font-size: .82rem; font-weight: 650; text-align: right; }
+
+/* mock score trend */
+.meta .up { color: var(--ok); font-weight: 700; }
+.meta .down { color: var(--warn); font-weight: 700; }
+
+/* ------------------------------------------------------------ home widgets
+   The old home led with a coverage number that reads as 0% for weeks, then
+   three full-width track tiles. On a laptop that is one tall ribbon down the
+   left with two thirds of the window empty. */
+
+/* Today: goal progress, then the two or three things worth doing now. */
+.today { padding: 15px 16px 12px; }
+.today .big { font-size: 1.15rem; font-weight: 700; letter-spacing: -.01em; }
+.today .bar { margin-top: 11px; }
+.todo { margin-top: 12px; display: grid; gap: 6px; }
+.todo-row {
+  display: flex; align-items: center; gap: 11px; width: 100%;
+  padding: 9px 11px; text-align: left; cursor: pointer;
+  background: var(--surface-2); border: 1px solid var(--line);
+  border-radius: 11px; color: inherit; font: inherit;
+}
+.todo-row:hover { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
+.todo-row .dot-lg {
+  flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--accent);
+}
+.todo-row .tt { flex: 1; min-width: 0; font-size: .84rem; font-weight: 620; }
+.todo-row .tt em {
+  display: block; font-style: normal; font-size: .72rem;
+  color: var(--dim); font-weight: 500; margin-top: 1px;
+}
+.todo-row .chev { color: var(--faint); font-size: 1.1rem; line-height: 1; }
+
+/* Weak spots + Recently open */
+.wgts { display: grid; gap: 12px; margin: 14px 0 4px; }
+.wgt {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: 14px; padding: 13px;
+}
+.wgt h3 { margin: 0; font-size: .88rem; font-weight: 660; letter-spacing: -.01em; }
+.wgt-note { margin: 4px 0 9px; font-size: .74rem; color: var(--dim); line-height: 1.45; }
+.wgt-tally { display: flex; gap: 7px; align-items: baseline; margin: 0 0 10px; font-size: .78rem; }
+.wgt-tally b { font-weight: 660; }
+.wgt-tally span { color: var(--faint); }
+.wgt h3 + .wrow { margin-top: 9px; }
+.wrow {
+  display: flex; align-items: flex-start; gap: 10px; width: 100%;
+  padding: 8px 4px; text-align: left; cursor: pointer;
+  background: none; border: 0; border-top: 1px solid var(--line);
+  color: inherit; font: inherit;
+}
+.wgt .wrow:first-of-type { border-top: 0; }
+.wrow:hover .wt { color: var(--accent); }
+.wrow .wn {
+  flex: 0 0 34px; text-align: center;
+  font-size: .72rem; font-weight: 700; color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
+  border-radius: 7px; padding: 3px 0;
+}
+.wrow .wn.ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, transparent); }
+.wrow .wt { flex: 1; min-width: 0; font-size: .8rem; font-weight: 620; }
+.wrow .wt em {
+  display: block; font-style: normal; font-size: .72rem; color: var(--dim);
+  font-weight: 500; margin-top: 2px; line-height: 1.4;
+  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+}
+
+.hero.mini { margin-top: 14px; }
+.hero.mini .big { font-size: 1.2rem; }
+.hero.mini .of { color: var(--dim); font-weight: 600; font-size: .82rem; }
+
+.countdown { margin-top: 0; margin-bottom: 14px; }
+.cd-rows { display: grid; gap: 2px; margin-top: 10px; }
+.cd-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 6px 2px; border-top: 1px solid var(--line);
+  font-size: .78rem;
+}
+.cd-row:first-child { border-top: 0; }
+.cd-row b { font-weight: 660; }
+.cd-row span { color: var(--dim); font-weight: 500; }
+.cd-row.long span { color: var(--warn); }
+.countdown .wgt-note { margin: 10px 0 0; }
+
+.wgt-cta {
+  display: block; width: 100%; text-align: left; cursor: pointer;
+  background: var(--surface); border: 1px dashed var(--accent);
+  border-radius: 14px; padding: 13px; font: inherit; color: inherit;
+  margin-bottom: 14px;
+}
+.wgt-cta h3 { margin: 0; font-size: .88rem; font-weight: 660; letter-spacing: -.01em; color: var(--accent); }
+.wgt-cta .wgt-note { margin: 4px 0 0; }
+
+input.dateinput {
+  background: var(--surface-3); border: 1px solid var(--line); border-radius: 9px;
+  padding: 7px 10px; font: inherit; font-size: .82rem; color: var(--text);
+  color-scheme: light dark;
+}
+
+/* the actual fix for the empty two thirds */
+@media (min-width: 900px) {
+  .wgts { grid-template-columns: 1fr 1fr; }
+  .tracks {
+    display: grid; gap: 12px;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+  }
+  .tracks > .track { margin-bottom: 0; }
+}
+
+/* "+3 more sections" on a search hit whose siblings were collapsed */
+.hit .where .more {
+  display: inline-block; margin-left: 8px;
+  font-size: .68rem; font-weight: 700; letter-spacing: .02em;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-radius: 999px; padding: 1px 7px;
+}

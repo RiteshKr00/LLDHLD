@@ -9,7 +9,7 @@ Run it after adding or editing any problem or reference doc:
 Outputs:
     mobile/www/content.js                 the app's content bundle (all markdown, embedded)
     mobile/www/icons/*.png                app icons (generated once, if missing)
-    mobile/dist/LLD-Prep-single.html      with --single: one self-contained file
+    mobile/dist/AI-Prep-single.html      with --single: one self-contained file
     mobile/android/.../assets/www/        with --android: copies www into the APK project
 """
 
@@ -34,6 +34,9 @@ WWW = HERE / "www"
 DIST = HERE / "dist"
 ANDROID_ASSETS = HERE / "android" / "app" / "src" / "main" / "assets" / "www"
 INTERVIEW = ROOT / "interview-mode"      # mock-interview sources
+LLD_ROOT = ROOT.parent / "LLD Interview Prep"   # the other track - a sibling of this repo,
+                                                 # so this resolves correctly under WSL and
+                                                 # native Windows alike (no hardcoded /mnt/c)
 
 PROBLEM_DIR = re.compile(r"^(\d{2})-(.+)$")
 
@@ -56,7 +59,23 @@ REF_EXCLUDE = {"BUILD-PROMPT-study-app.md", "NEXT-SESSION.md",
 
 # Reference docs: filename -> (group, label). This order is the order in the app.
 REF_SPEC = [
-    ("README.md",              "Start here", "How this track works"),
+    ("README.md",                    "Start here", "How this track works"),
+    ("AI-general-question-bank.md",  "Start here", "General question bank (68 Qs)"),
+    ("AI-metrics-discipline.md",     "Start here", "Metrics discipline"),
+    ("AI-defense-process.md",        "Defense",    "The defense process"),
+    ("AI-behavioral-honesty.md",     "Defense",    "Behavioral & AI honesty"),
+    ("AI-concepts-glossary.md",      "Reference",  "Concepts glossary"),
+    ("AI-scaling-rubric.md",         "Design",     "The scaling rubric"),
+    ("AI-design-scenarios.md",       "Design",     "Design scenarios 1-10"),
+    ("AI-design-scenarios-2.md",     "Design",     "Design scenarios 11-20"),
+    ("AI-design-scenarios-3.md",     "Design",     "Design scenarios 21-32"),
+    ("AI-architecture-diagrams.md",  "Design",     "Reference architectures"),
+    ("AI-fast-revision.md",          "Revision",   "Fast revision pass"),
+]
+
+# the LLD/HLD repo's own reference docs, kept so that track keeps its material
+LLD_REF_SPEC = [
+    ("README.md",              "Start here", "How the LLD track works"),
     ("LLD-HLD-process.md",     "Start here", "LLD & HLD process"),
     ("LLD-entity-playbook.md", "LLD",        "Entity-finding playbook"),
     ("LLD-patterns.md",        "LLD",        "Patterns & principles"),
@@ -154,6 +173,29 @@ def card_id(*parts: str) -> str:
     return hashlib.md5("::".join(parts).encode("utf-8")).hexdigest()[:12]
 
 
+def _quote_only(s: str) -> str:
+    """Only the blockquote. The prose after it is commentary about the question,
+    not the question, and putting it on a card front buries the prompt."""
+    keep = []
+    for line in s.split("\n"):
+        if line.startswith(">"):
+            keep.append(line)
+        elif keep:
+            break
+    return "\n".join(keep).strip()
+
+
+def _before_rule(s: str) -> str:
+    """Up to the first horizontal rule.
+
+    A section body runs to the next heading, so it carries the `---` that
+    separates it. Splitting on a rule followed by a newline misses the one at
+    the very end, which is exactly where it always is.
+    """
+    out = re.split(r"(?:^|\n)---+\s*(?:\n|$)", s)[0]
+    return out.strip().rstrip("-").strip()
+
+
 def prompt_of(problem_md: str) -> str:
     m = re.search(r"^>\s*[\"\u201c](.+?)[\"\u201d]", problem_md, re.M | re.S)
     return re.sub(r"\s+", " ", m.group(1)).strip() if m else ""
@@ -167,10 +209,18 @@ def build_decks(problems, refs):
     decks = []
     ref_md = {r["id"]: r["md"] for r in refs}
 
+    # Which track a deck belongs to, so Revise can be filtered. 320 cards in one
+    # undifferentiated list is worse than either half of it alone.
+    DECK_TRACK = {"pain": "LLD", "patterns": "LLD", "entities": "LLD",
+                  "clarify": "LLD", "scope": "LLD", "hldbank": "HLD",
+                  "ai-bank": "AI", "ai-glossary": "AI",
+                  "ai-openers": "AI", "ai-breaks": "AI"}
+
     def add(deck_id, title, subtitle, cards):
         cards = [c for c in cards if len(c["back"].strip()) > 40]
         if cards:
-            decks.append({"id": deck_id, "title": title, "subtitle": subtitle, "cards": cards})
+            decks.append({"id": deck_id, "title": title, "subtitle": subtitle,
+                          "track": DECK_TRACK.get(deck_id, "LLD"), "cards": cards})
 
     # 1. Pain -> pattern. Show the naive code, ask what hurts. The highest-value card here.
     md = ref_md.get("LLD-pain-to-pattern")
@@ -270,17 +320,98 @@ def build_decks(problems, refs):
     add("clarify", "Clarifying questions", "Step 1 reps, per problem", q_cards)
     add("scope", "Scope & entities", "What you locked, per problem", scope_cards)
 
+    # ---------------------------------------------------------------- AI decks
+    # Every card below is lifted verbatim from material that already exists in
+    # the repo. Nothing is generated or paraphrased: a flashcard deck's failure
+    # mode is a hundred cards that teach the wrong thing confidently, and the
+    # cheapest defence is never to author anything new here.
+
+    # 7. The general question bank - 68 Q/A pairs, already in card shape.
+    md = ref_md.get("ai-AI-general-question-bank")
+    if md:
+        cards = []
+        for topic, body in split_sections(md, 2):
+            for m in re.finditer(r"^\*\*Q:\s*(.+?)\*\*\s*\n(.*?)(?=\n\*\*Q:|\Z)",
+                                 body, re.M | re.S):
+                q, a = m.group(1).strip(), _before_rule(m.group(2))
+                if len(a) < 40:
+                    continue
+                cards.append({
+                    "id": card_id("qb", q),
+                    "tag": strip_marks(re.sub(r"^\d+\s*-\s*", "", topic)),
+                    "front": "**" + q + "**",
+                    "back": a,
+                })
+        add("ai-bank", "AI question bank", "68 questions, no project needed", cards)
+
+    # 8. Glossary - one card per bulleted term.
+    md = ref_md.get("ai-AI-concepts-glossary")
+    if md:
+        cards = []
+        for topic, body in split_sections(md, 2):
+            for m in re.finditer(r"^-\s+\*\*(.+?)\*\*\s*[\u2014-]\s*(.+?)(?=\n-\s+\*\*|\Z)",
+                                 body, re.M | re.S):
+                term, defn = strip_marks(m.group(1)), _before_rule(m.group(2))
+                if len(defn) < 40:
+                    continue
+                cards.append({
+                    "id": card_id("gl", term),
+                    "tag": strip_marks(topic),
+                    "front": "**" + term + "**\n\nDefine it, and say what it is for.",
+                    "back": defn,
+                })
+        add("ai-glossary", "AI concepts glossary", "Term recall", cards)
+
+    # 9 and 10. Openers and breaks-first, one per AI problem folder. These are
+    # the two highest-value AI decks because they drill the two moments an
+    # interview actually turns on: what you ask before designing, and what you
+    # say breaks when pushed.
+    openers, breaks = [], []
+    for p in problems:
+        if p.get("track") != "AI":
+            continue
+        docs = {d["key"]: d.get("md", "") for d in p.get("docs", [])}
+        pm, em = docs.get("problem", ""), docs.get("explained", "")
+        name = strip_marks(p["title"])
+        if pm:
+            secs = split_sections(pm, 2)
+            prompt = next((_quote_only(v) for k, v in secs
+                           if k.startswith("The prompt")), "")
+            clar = next((_before_rule(v) for k, v in secs
+                         if "Clarifying questions" in k), "")
+            if prompt and clar:
+                openers.append({
+                    "id": card_id("open", p["id"]),
+                    "tag": name,
+                    "front": prompt + "\n\n**What do you establish before designing?**",
+                    "back": clar,
+                })
+        if em:
+            bf = next((_before_rule(v) for k, v in split_sections(em, 2)
+                       if "breaks first" in k.lower()), "")
+            if bf:
+                breaks.append({
+                    "id": card_id("brk", p["id"]),
+                    "tag": name,
+                    "front": "**" + name + "**\n\nWhat breaks first, and in what order?",
+                    "back": bf,
+                })
+    add("ai-openers", "Design scenario openers", "What you ask before designing", openers)
+    add("ai-breaks", "What breaks first", "The failure order, per system", breaks)
+
     return decks
 
 
-def scan_mocks():
-    """interview-mode/hld/*.md -> structured mock problems (see mockparse)."""
-    d = INTERVIEW / "hld"
-    if not d.is_dir():
-        return []
+def scan_mocks(root=None, subdirs=("ai", "design"), track="AI", lld_folders=False,
+               id_prefix=""):
+    """interview-mode/<subdir>/*.md -> structured mock problems (see mockparse)."""
+    root = root or ROOT
+    iv = root / "interview-mode"
+    dirs = [x for x in (iv / sd for sd in subdirs) if x.is_dir()]
     out = []
     # the LLD folders drive mocks too - same shape, different source layout
-    for p in sorted(x for x in ROOT.iterdir() if x.is_dir() and PROBLEM_DIR.match(x.name)):
+    for p in (sorted(x for x in root.iterdir() if x.is_dir() and PROBLEM_DIR.match(x.name))
+              if lld_folders else []):
         f = p / "problem.md"
         if not f.exists():
             continue
@@ -290,14 +421,16 @@ def scan_mocks():
             continue
         m["title"] = clean_title(first_h1(md) or "", p.name)
         m["mins"] = reading_mins(md)
+        m["id"] = id_prefix + m["id"]
         out.append(m)
 
-    for f in sorted(d.glob("*.md")):
+    for f in sorted(x for d in dirs for x in d.glob("*.md")):
         md = read(f)
         m = mockparse.parse(md, f.stem)
         # the h1 is "HLD-01 - News Feed (Twitter)"; the app already shows the number
         t = clean_title(first_h1(md) or "", f.stem)
-        m["title"] = re.sub(r"^HLD-\d+\s*[—\-]\s*", "", t).strip()
+        m["title"] = re.sub(r"^(?:AI|DESIGN|HLD)-\d+\s*[—\-]\s*", "", t).strip()
+        m["track"] = track
         m["md"] = md
         m["mins"] = reading_mins(md)
         out.append(m)
@@ -308,9 +441,10 @@ def scan_mocks():
 # scan
 # ---------------------------------------------------------------------------
 
-def scan():
-    problems = []
-    for d in sorted(p for p in ROOT.iterdir() if p.is_dir()):
+def _problems(root, track, prefix=""):
+    """One content root's NN-slug folders -> problem objects, tagged with a track."""
+    out = []
+    for d in sorted(p for p in root.iterdir() if p.is_dir()):
         m = PROBLEM_DIR.match(d.name)
         if not m:
             continue
@@ -334,56 +468,80 @@ def scan():
             continue
         pm = next((x["md"] for x in docs if x["key"] == "problem"), "")
         blob = "\n".join(x["md"] for x in docs)
-        problems.append({
-            "id": d.name,
+        out.append({
+            "id": prefix + d.name,
             "num": num,
             "slug": slug,
+            "track": track,
+            # AI folders 01-14 are concept topics; 15+ are design scenarios. The
+            # track view splits on this so one list of 44 cards becomes two.
+            "kind": ("design" if (track == "AI" and num >= 15) else "topic"),
             "title": clean_title(first_h1(pm) or "", slug),
             "prompt": prompt_of(pm),
-            "tags": detect_patterns(blob),
+            # GoF pattern names only mean something on the LLD track. On the AI
+            # track they fire on ordinary words - LangGraph "State" is not the
+            # State pattern - so the detector is scoped to LLD.
+            "tags": detect_patterns(blob) if track == "LLD" else [],
             "mins": sum(x["mins"] for x in docs),
             "docs": docs,
         })
-    problems.sort(key=lambda p: p["num"])
+    out.sort(key=lambda p: p["num"])
+    return out
 
-    refs = []
-    for fname, group, label in REF_SPEC:
-        f = ROOT / fname
+
+def _refs(root, spec, extra_group="More", interview_group="Mocks", id_prefix=""):
+    """One content root's top-level markdown -> reference objects."""
+    out = []
+    for fname, group, label in spec:
+        f = root / fname
         if not f.exists():
             continue
         body = read(f)
-        refs.append({"id": f.stem, "group": group, "title": label,
-                     "heading": first_h1(body) or label, "md": body,
-                     "mins": reading_mins(body)})
-    known = {f for f, _, _ in REF_SPEC} | REF_EXCLUDE
-    for f in sorted(ROOT.glob("*.md")):
+        out.append({"id": id_prefix + f.stem, "group": group, "title": label,
+                    "heading": first_h1(body) or label, "md": body,
+                    "mins": reading_mins(body)})
+    known = {f for f, _, _ in spec} | REF_EXCLUDE
+    for f in sorted(root.glob("*.md")):
         if f.name in known:
             continue
         body = read(f)
-        refs.append({"id": f.stem, "group": "More", "title": f.stem.replace("-", " "),
-                     "heading": first_h1(body) or f.stem, "md": body,
-                     "mins": reading_mins(body)})
-
-    # interview-mode top-level docs (HLD-BASICS is the beginner on-ramp)
-    for fname, label in (("HLD-BASICS.md", "HLD basics"),
-                         ("INDEX.md", "Mock index"),
-                         ("FORMAT.md", "Mock file format")):
-        f = INTERVIEW / fname
+        out.append({"id": id_prefix + f.stem, "group": extra_group,
+                    "title": f.stem.replace("-", " "),
+                    "heading": first_h1(body) or f.stem, "md": body,
+                    "mins": reading_mins(body)})
+    for fname, label in (("INDEX.md", "Mock index"), ("FORMAT.md", "Mock file format"),
+                         ("HLD-BASICS.md", "HLD basics")):
+        f = root / "interview-mode" / fname
         if not f.exists():
             continue
         body = read(f)
-        refs.append({"id": f.stem, "group": "HLD", "title": label,
-                     "heading": first_h1(body) or label, "md": body,
-                     "mins": reading_mins(body)})
+        out.append({"id": id_prefix + f.stem, "group": interview_group, "title": label,
+                    "heading": first_h1(body) or label, "md": body,
+                    "mins": reading_mins(body)})
+    return out
 
-    mocks = scan_mocks()
 
-    # every HLD round is readable as well as runnable, so ship its markdown
-    # as a reference too - that is what 'read it instead' opens
+def scan():
+    """Three tracks in unified repository: LLD, HLD, AI."""
+    problems = _problems(ROOT, "LLD")
+    refs = _refs(ROOT, LLD_REF_SPEC)
+    mocks = scan_mocks(ROOT, ("hld",), "HLD", lld_folders=True)
+
+    AI_ROOT = ROOT / "ai"
+    if AI_ROOT.is_dir():
+        problems += _problems(AI_ROOT, "AI", prefix="ai-")
+        ai_refs = _refs(ROOT, REF_SPEC, extra_group="AI", interview_group="AI", id_prefix="ai-")
+        for r in ai_refs:
+            if r["group"] in ("Start here", "Defense", "Design", "Reference", "Revision", "AI"):
+                r["group"] = "AI"
+        refs += ai_refs
+        mocks += scan_mocks(ROOT, ("ai", "design"), "AI", lld_folders=False, id_prefix="")
+
+    # every readable round ships as a reference too - that is 'read it instead'
     for m in mocks:
-        if m["track"] != "HLD":
+        if m["track"] == "LLD":
             continue
-        refs.append({"id": m["id"], "group": "HLD rounds", "title": m["title"],
+        refs.append({"id": m["id"], "group": m["track"] + " rounds", "title": m["title"],
                      "heading": m["title"], "md": m["md"], "mins": m["mins"]})
 
     payload = {
@@ -560,7 +718,7 @@ def write_single_file(payload):
         '<script src="app.js"></script>',
         "<script>window.LLD_SINGLE_FILE = true;</script>\n"
         "<script>\n" + app + "\n</script>")
-    out = DIST / "LLD-Prep-single.html"
+    out = DIST / "AI-Prep-single.html"
     out.write_text(html, encoding="utf-8")
     return out
 
@@ -598,7 +756,7 @@ def stamp_service_worker(version):
         return version
     stamp = asset_fingerprint(version)
     text = read(sw)
-    new = re.sub(r"const CACHE = '[^']*';", "const CACHE = 'lld-" + stamp + "';", text)
+    new = re.sub(r"const CACHE = '[^']*';", "const CACHE = 'aiprep-" + stamp + "';", text)
     if new != text:
         sw.write_text(new, encoding="utf-8")
     return stamp
@@ -606,7 +764,7 @@ def stamp_service_worker(version):
 
 def main():
     ap = argparse.ArgumentParser(description="Build the LLD Prep phone app content bundle.")
-    ap.add_argument("--single", action="store_true", help="also emit dist/LLD-Prep-single.html")
+    ap.add_argument("--single", action="store_true", help="also emit dist/AI-Prep-single.html")
     ap.add_argument("--android", action="store_true", help="also copy www/ into the Android project")
     ap.add_argument("--icons", action="store_true", help="regenerate the app icons")
     args = ap.parse_args()
