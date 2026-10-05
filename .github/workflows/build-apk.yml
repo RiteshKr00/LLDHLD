@@ -28,16 +28,13 @@ jobs:
           python-version: '3.11'
 
       - name: Build the study bundle and copy it into the Android project
-        run: python mobile/build.py --android
+        run: python mobile/build.py --android --icons
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
-
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.7'
+          cache: 'gradle'
 
       - name: Assemble debug APK
         working-directory: mobile/android
