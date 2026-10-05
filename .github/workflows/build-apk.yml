@@ -35,16 +35,16 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.7'
 
+      - name: Create local.properties
+        run: echo "sdk.dir=$ANDROID_HOME" > mobile/android/local.properties
+
       - name: Assemble debug APK
         working-directory: mobile/android
-        run: gradle assembleDebug --no-daemon --stacktrace
+        run: gradle assembleDebug --no-daemon --stacktrace --info
 
       - name: Name the APK after the content version
         id: rename
