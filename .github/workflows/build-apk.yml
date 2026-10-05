@@ -39,12 +39,17 @@ jobs:
         with:
           gradle-version: '8.7'
 
-      - name: Create local.properties
-        run: echo "sdk.dir=$ANDROID_HOME" > mobile/android/local.properties
+      - name: Accept SDK Licenses and Setup local.properties
+        run: |
+          echo "sdk.dir=$ANDROID_HOME" > mobile/android/local.properties
+          yes | sdkmanager --licenses || true
+
+      - name: Make gradlew executable
+        run: chmod +x mobile/android/gradlew
 
       - name: Assemble debug APK
         working-directory: mobile/android
-        run: gradle assembleDebug --no-daemon --stacktrace --info
+        run: ./gradlew assembleDebug --stacktrace
 
       - name: Name the APK after the content version
         id: rename
