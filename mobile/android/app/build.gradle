@@ -33,7 +33,7 @@ android {
 
     androidResources {
         // the study bundle is already small; leaving it uncompressed keeps startup quick
-        noCompress 'woff2'
+        noCompress 'woff2', 'js'
     }
 }
 

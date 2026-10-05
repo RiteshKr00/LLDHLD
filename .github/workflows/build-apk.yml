@@ -28,7 +28,7 @@ jobs:
           python-version: '3.11'
 
       - name: Build the study bundle and copy it into the Android project
-        run: python mobile/build.py --android --icons
+        run: python mobile/build.py --android
 
       - uses: actions/setup-java@v4
         with:
@@ -39,17 +39,9 @@ jobs:
         with:
           gradle-version: '8.7'
 
-      - name: Accept SDK Licenses and Setup local.properties
-        run: |
-          echo "sdk.dir=$ANDROID_HOME" > mobile/android/local.properties
-          yes | sdkmanager --licenses || true
-
-      - name: Make gradlew executable
-        run: chmod +x mobile/android/gradlew
-
       - name: Assemble debug APK
         working-directory: mobile/android
-        run: ./gradlew assembleDebug --stacktrace
+        run: gradle assembleDebug --no-daemon --stacktrace
 
       - name: Name the APK after the content version
         id: rename
